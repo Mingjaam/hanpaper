@@ -1,0 +1,113 @@
+name: build
+
+# Every push builds both apps. A tag like v1.0.1 also publishes a GitHub Release with the installers
+# (Hanpaper-Setup.exe, Hanpaper.dmg) and portable zips, which the README and the website link to.
+# Pushes to main deploy the website (site/) to GitHub Pages.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Dependencies
+        run: python -m pip install -r requirements.txt pyinstaller Pillow
+      - name: Smoke test (analysis + Korean re-typesetting)
+        run: python packaging/smoke_test.py
+      - name: Build app
+        shell: pwsh
+        run: |
+          python packaging/make_icon.py
+          python -m PyInstaller --noconfirm --clean --distpath dist --workpath build packaging/hanpaper.spec
+          New-Item -ItemType Directory -Force out | Out-Null
+          Compress-Archive -Path dist/Hanpaper -DestinationPath out/Hanpaper-windows-x64.zip
+      - name: Installer
+        shell: pwsh
+        run: |
+          $version = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}".TrimStart("v") } else { "0.0.0" }
+          Invoke-WebRequest https://github.com/jrsoftware/issrc/releases/download/is-6_4_3/innosetup-6.4.3.exe -OutFile innosetup.exe
+          Start-Process ./innosetup.exe -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CURRENTUSER /DIR="C:\inno" /NOICONS' -Wait
+          & C:\inno\ISCC.exe /Q "/DAppVersion=$version" packaging\installer.iss
+          Copy-Item packaging\Output\Hanpaper-Setup.exe out\
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            out/Hanpaper-Setup.exe
+            out/Hanpaper-windows-x64.zip
+
+  macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Smoke test
+        run: |
+          python -m pip install -r requirements.txt
+          python packaging/smoke_test.py
+      - name: Build app
+        env:
+          PYTHON: python
+        run: bash packaging/build_mac.sh
+      - name: Check bundle
+        run: |
+          test -x dist/Hanpaper.app/Contents/MacOS/Hanpaper
+          test -d dist/Hanpaper.app/Contents/Resources || test -d dist/Hanpaper.app/Contents/Frameworks
+          ls -la dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: |
+            dist/Hanpaper.dmg
+            dist/Hanpaper-macos.zip
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            out/Hanpaper-Setup.exe
+            out/Hanpaper.dmg
+            out/Hanpaper-windows-x64.zip
+            out/Hanpaper-macos.zip
+          generate_release_notes: true
+
+  site:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4

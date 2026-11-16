@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="pb-token" content="__TOKEN__">
+<title>한페이퍼</title>
+<link rel="icon" href="/static/logo.png">
+<link rel="stylesheet" href="/static/app.css?v=__VERSION__">
+<script>
+  try { var t = JSON.parse(localStorage.getItem("pb.theme") || "null"); if (t && t !== "system") document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
+</head>
+<body>
+<header id="top">
+  <button class="logo" id="homeBtn" title="논문 목록">
+    <img src="/static/logo.png" alt="" width="22" height="22">
+    한페이퍼
+  </button>
+  <div class="tsep"></div>
+  <div id="docTitle"></div>
+  <div class="grow"></div>
+  <div id="prog" hidden></div>
+  <button class="tbtn" id="openBtn" title="PDF 열기 (Ctrl+O)"></button>
+  <button class="tbtn" id="layoutBtn" title="화면 배치"></button>
+  <button class="tbtn" id="exportBtn" title="PDF로 저장"></button>
+  <button class="tbtn ic" id="settingsBtn" title="설정"></button>
+</header>
+<main id="shell"></main>
+<section id="home"></section>
+<div id="toast"></div>
+<input type="file" id="fileIn" accept="application/pdf,.pdf" hidden>
+<script src="/static/app.js?v=__VERSION__"></script>
+</body>
+</html>

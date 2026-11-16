@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>한페이퍼 — 영어 논문을 한국어로, 나란히</title>
+<meta name="description" content="영어 논문 PDF를 넣으면 레이아웃·그림·글자 크기를 그대로 둔 한글 논문을 만들고, 원문과 나란히 읽으며 논문 도우미에게 질문하는 Windows·macOS 앱.">
+<meta property="og:title" content="한페이퍼 Hanpaper">
+<meta property="og:description" content="영어 논문을 한국어로, 나란히. 분야 맞춤 번역 · 레이아웃 그대로 · 원문 연동 · 논문 도우미">
+<meta property="og:image" content="assets/banner.png">
+<link rel="icon" href="assets/icon.png">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css">
+<style>
+:root{
+  --bg:#f6f6f3; --surface:#fff; --ink:#18181b; --ink2:#46464d; --muted:#75747c; --line:#e5e3dd;
+  --accent:#3b5bdb; --accent2:#5c7cfa; --accent-soft:#e9edfc; --shadow:0 30px 80px rgba(20,24,60,.16),0 8px 24px rgba(20,24,60,.08);
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#111214; --surface:#1b1c20; --ink:#ececef; --ink2:#c3c3ca; --muted:#8f8f98; --line:#2b2c31;
+    --accent:#7d95f2; --accent2:#91a7ff; --accent-soft:#1f2640; --shadow:0 30px 80px rgba(0,0,0,.55),0 8px 24px rgba(0,0,0,.4);
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#111214; --surface:#1b1c20; --ink:#ececef; --ink2:#c3c3ca; --muted:#8f8f98; --line:#2b2c31;
+  --accent:#7d95f2; --accent2:#91a7ff; --accent-soft:#1f2640; --shadow:0 30px 80px rgba(0,0,0,.55),0 8px 24px rgba(0,0,0,.4);
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.7 "Pretendard Variable",Pretendard,"Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;-webkit-font-smoothing:antialiased;word-break:keep-all}
+a{color:inherit}
+.wrap{width:min(1120px,100% - 32px);margin:0 auto}
+nav{position:sticky;top:0;z-index:10;backdrop-filter:saturate(1.4) blur(14px);background:color-mix(in srgb,var(--bg) 82%,transparent);border-bottom:1px solid color-mix(in srgb,var(--line) 70%,transparent)}
+nav .wrap{display:flex;align-items:center;gap:18px;height:60px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:750;text-decoration:none;letter-spacing:-.01em}
+.brand img{width:28px;height:28px;border-radius:7px}
+.brand small{font-weight:500;color:var(--muted)}
+nav .links{margin-left:auto;display:flex;gap:22px;font-size:14.5px;color:var(--ink2)}
+nav .links a{text-decoration:none}
+nav .links a:hover{color:var(--accent)}
+.gh{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:999px;padding:6px 14px;font-size:14px;text-decoration:none;background:var(--surface)}
+.hero{padding:84px 0 40px;text-align:center}
+.kicker{display:inline-flex;align-items:center;gap:8px;font-size:13.5px;font-weight:600;color:var(--accent);background:var(--accent-soft);border-radius:999px;padding:5px 14px}
+h1{font-size:clamp(36px,6vw,64px);line-height:1.15;letter-spacing:-.035em;margin:22px 0 18px;font-weight:800}
+h1 em{font-style:normal;background:linear-gradient(100deg,var(--accent),#a24bd6);-webkit-background-clip:text;background-clip:text;color:transparent}
+.lead{font-size:clamp(16px,2vw,19px);color:var(--ink2);max-width:680px;margin:0 auto}
+.cta{display:flex;flex-wrap:wrap;justify-content:center;gap:12px;margin:34px 0 16px}
+.btn{display:inline-flex;align-items:center;gap:10px;border-radius:14px;padding:14px 24px;font-weight:700;font-size:16px;text-decoration:none;transition:transform .15s,box-shadow .15s}
+.btn svg{width:20px;height:20px;fill:currentColor}
+.btn.win{background:var(--accent);color:#fff;box-shadow:0 10px 24px color-mix(in srgb,var(--accent) 35%,transparent)}
+.btn.mac{background:var(--ink);color:var(--bg)}
+.btn:hover{transform:translateY(-2px)}
+.btn small{font-weight:500;opacity:.8;font-size:12.5px}
+.badges{display:flex;justify-content:center;gap:8px;flex-wrap:wrap;margin-top:6px}
+.badges img{height:22px}
+.sub{font-size:13.5px;color:var(--muted);margin-top:10px}
+.sub a{color:var(--ink2)}
+.shot{margin:56px auto 0;border-radius:18px;overflow:hidden;box-shadow:var(--shadow);border:1px solid var(--line);background:var(--surface)}
+.shot img{display:block;width:100%;height:auto}
+.shot picture{display:block}
+section{padding:96px 0 0}
+.eyebrow{font-size:13.5px;font-weight:700;color:var(--accent);letter-spacing:.04em}
+h2{font-size:clamp(26px,3.6vw,40px);letter-spacing:-.03em;line-height:1.25;margin:8px 0 14px;font-weight:800}
+.desc{color:var(--ink2);max-width:640px;margin:0}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:36px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:24px}
+.card .ic{width:42px;height:42px;border-radius:12px;background:var(--accent-soft);color:var(--accent);display:flex;align-items:center;justify-content:center;font-size:20px;margin-bottom:14px}
+.card h3{margin:0 0 6px;font-size:17.5px;letter-spacing:-.01em}
+.card p{margin:0;color:var(--ink2);font-size:15px}
+.split{display:grid;grid-template-columns:1fr 1.25fr;gap:48px;align-items:center}
+.split.rev{grid-template-columns:1.25fr 1fr}
+.split.rev .txt{order:2}
+.split .shot{margin:0}
+ul.check{list-style:none;padding:0;margin:22px 0 0}
+ul.check li{position:relative;padding-left:30px;margin:10px 0;color:var(--ink2)}
+ul.check li::before{content:"";position:absolute;left:0;top:7px;width:18px;height:18px;border-radius:50%;background:var(--accent-soft)}
+ul.check li::after{content:"";position:absolute;left:5px;top:12px;width:8px;height:4px;border:2px solid var(--accent);border-top:0;border-right:0;transform:rotate(-45deg)}
+.ai{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:30px}
+.ai .card h3{display:flex;align-items:center;gap:8px}
+.tag{font-size:12px;font-weight:600;color:var(--accent);background:var(--accent-soft);border-radius:999px;padding:2px 9px}
+.steps{counter-reset:s;display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:36px}
+.step{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:22px}
+.step::before{counter-increment:s;content:counter(s);display:inline-flex;width:30px;height:30px;border-radius:50%;background:var(--accent);color:#fff;font-weight:800;align-items:center;justify-content:center;margin-bottom:12px}
+.step h3{margin:0 0 6px;font-size:16.5px}
+.step p{margin:0;color:var(--ink2);font-size:14.5px}
+details{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px 20px;margin-top:10px}
+details summary{cursor:pointer;font-weight:700;list-style:none}
+details summary::-webkit-details-marker{display:none}
+details summary::after{content:"+";float:right;color:var(--muted);font-weight:500}
+details[open] summary::after{content:"–"}
+details p{color:var(--ink2);margin:10px 0 0}
+.final{margin:110px 0 0;padding:64px 24px;border-radius:28px;text-align:center;background:linear-gradient(135deg,var(--accent),#7b4fd6);color:#fff}
+.final h2{color:#fff}
+.final .btn.win{background:#fff;color:var(--accent);box-shadow:none}
+.final .btn.mac{background:rgba(255,255,255,.16);color:#fff}
+footer{padding:48px 0 60px;color:var(--muted);font-size:13.5px}
+footer .wrap{display:flex;flex-wrap:wrap;gap:12px 24px;justify-content:space-between}
+@media (max-width:900px){
+  .grid,.steps{grid-template-columns:1fr 1fr}
+  .split,.split.rev{grid-template-columns:1fr}
+  .split.rev .txt{order:0}
+  nav .links{display:none}
+}
+@media (max-width:560px){
+  .grid,.steps,.ai{grid-template-columns:1fr}
+  .hero{padding-top:56px}
+}
+</style>
+</head>
+<body>
+<nav><div class="wrap">
+  <a class="brand" href="#"><img src="assets/icon.png" alt="">한페이퍼 <small>Hanpaper</small></a>
+  <div class="links"><a href="#features">기능</a><a href="#how">사용법</a><a href="#ai">AI 연결</a><a href="#faq">FAQ</a></div>
+  <a class="gh" href="https://github.com/Mingjaam/hanpaper"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>GitHub</a>
+</div></nav>
+
+<header class="hero"><div class="wrap">
+  <span class="kicker">Windows · macOS · 무료 오픈소스</span>
+  <h1>영어 논문을 <em>한국어로, 나란히</em></h1>
+  <p class="lead">PDF를 넣으면 그림·표·수식과 글자 크기까지 그대로 둔 <b>한글 논문</b>이 만들어집니다. 원문과 번역을 양옆에 두고, 문단을 누르면 두 PDF의 같은 자리가 함께 빛나요. 모르는 건 옆의 논문 도우미에게 물어보세요.</p>
+  <div class="cta">
+    <a class="btn win" href="https://github.com/Mingjaam/hanpaper/releases/latest/download/Hanpaper-Setup.exe"><svg viewBox="0 0 24 24"><path d="M3 5.5l7.5-1v7H3zm0 13l7.5 1v-7H3zm8.5 1.1L21 21v-8.5h-9.5zm0-15.2V11.5H21V3z"/></svg>Windows용 받기</a>
+    <a class="btn mac" href="https://github.com/Mingjaam/hanpaper/releases/latest/download/Hanpaper.dmg"><svg viewBox="0 0 24 24"><path d="M16.4 12.6c0-2.6 2.1-3.8 2.2-3.9-1.2-1.8-3.1-2-3.7-2-1.6-.2-3.1.9-3.9.9-.8 0-2-.9-3.4-.9-1.7 0-3.3 1-4.2 2.6-1.8 3.1-.5 7.7 1.3 10.2.9 1.2 1.9 2.6 3.2 2.6 1.3-.1 1.8-.8 3.3-.8 1.6 0 2 .8 3.4.8 1.4 0 2.3-1.3 3.1-2.5 1-1.4 1.4-2.8 1.4-2.9-.1 0-2.7-1-2.7-4.1zM13.9 5c.7-.9 1.2-2 1-3.2-1 0-2.3.7-3 1.6-.7.8-1.2 2-1.1 3.1 1.2.1 2.3-.6 3.1-1.5z"/></svg>macOS용 받기</a>
+  </div>
+  <div class="badges">
+    <img alt="최신 버전" src="https://img.shields.io/github/v/release/Mingjaam/hanpaper?style=flat-square&color=3b5bdb&label=%EC%B5%9C%EC%8B%A0%20%EB%B2%84%EC%A0%84">
+    <img alt="다운로드" src="https://img.shields.io/github/downloads/Mingjaam/hanpaper/total?style=flat-square&color=7b4fd6&label=%EB%8B%A4%EC%9A%B4%EB%A1%9C%EB%93%9C">
+    <img alt="Stars" src="https://img.shields.io/github/stars/Mingjaam/hanpaper?style=flat-square&color=18181b&label=%E2%98%85">
+  </div>
+  <p class="sub">설치 없이 쓰려면 <a href="https://github.com/Mingjaam/hanpaper/releases/latest/download/Hanpaper-windows-x64.zip">Windows 압축 파일</a> · <a href="https://github.com/Mingjaam/hanpaper/releases/latest/download/Hanpaper-macos.zip">macOS 압축 파일</a></p>
+  <div class="shot"><picture><source srcset="assets/main-dark.png" media="(prefers-color-scheme: dark)"><img src="assets/main.png" alt="한페이퍼 화면: 원문, 번역, 읽기, 질문 네 칸"></picture></div>
+</div></header>
+
+<section id="features"><div class="wrap">
+  <div class="eyebrow">FEATURES</div>
+  <h2>논문 읽기에 필요한 건 한 화면에</h2>
+  <p class="desc">번역기를 오가며 복사·붙여넣기 하던 일을 없앴습니다. 원문, 번역, 읽기 쉬운 본문, 질문 창이 서로 연결돼 움직여요.</p>
+  <div class="grid">
+    <div class="card"><div class="ic">文</div><h3>분야 맞춤 번역</h3><p>논문 분야를 먼저 파악해 한국 학계에서 실제로 쓰는 용어로 옮겨요. 용어집은 직접 고치고 그 용어가 든 문단만 다시 번역할 수 있어요.</p></div>
+    <div class="card"><div class="ic">▦</div><h3>레이아웃 그대로</h3><p>그림·표·수식·색은 원본 그대로 두고 글만 한국어로 바꿔요. 2단 편집, 그림을 둘러싼 문단, 단을 넘는 문단까지 맞춰 조판합니다.</p></div>
+    <div class="card"><div class="ic">⇆</div><h3>모두 연결된 화면</h3><p>읽기 화면에서 문단을 누르거나 드래그하면 원문·번역 PDF의 같은 자리가 함께 표시돼요. 스크롤도 함께 움직입니다.</p></div>
+    <div class="card"><div class="ic">∑</div><h3>수식·알고리즘은 원형대로</h3><p>수식, 식 번호, 수도코드는 번역하지 않고 그대로 보존해요. 읽기 화면에서도 깨지지 않게 이미지로 보여 줍니다.</p></div>
+    <div class="card"><div class="ic">?</div><h3>논문 도우미</h3><p>"핵심 기여가 뭐야?", "이 식이 뭘 뜻해?" 논문 전체를 아는 도우미가 답하고, 근거 문단 ¶ 표시를 누르면 그 자리로 이동해요.</p></div>
+    <div class="card"><div class="ic">✎</div><h3>형광펜과 PDF 저장</h3><p>중요한 문단에 형광펜을 긋고 한글 논문, 원문, 원문|번역 대역본을 PDF로 저장해요.</p></div>
+  </div>
+</div></section>
+
+<section><div class="wrap split">
+  <div class="txt">
+    <div class="eyebrow">LAYOUT</div>
+    <h2>원문 옆에 놓아도<br>어색하지 않은 한글 논문</h2>
+    <p class="desc">한글 PDF는 원본 위에 글자만 바꿔 얹는 방식이라 쪽수와 배치가 원문과 1:1로 맞습니다.</p>
+    <ul class="check">
+      <li>본문 글꼴 크기·정렬·들여쓰기·색 유지</li>
+      <li>글이 길어지면 빈 공간으로 먼저 늘리고, 그래도 넘칠 때만 줄여요</li>
+      <li>그림 안 글자, 저자 이름, 참고문헌처럼 번역이 필요 없는 건 그대로</li>
+      <li>표는 칸마다 번역해 표 모양을 지켜요</li>
+    </ul>
+  </div>
+  <div class="shot"><img src="assets/pair.png" alt="원문과 한글 번역 PDF를 나란히 놓은 화면"></div>
+</div></section>
+
+<section><div class="wrap split rev">
+  <div class="txt">
+    <div class="eyebrow">READER</div>
+    <h2>PDF보다 편한<br>읽기 화면</h2>
+    <p class="desc">문단 구분이 분명한 본문 보기로 논문을 처음부터 끝까지 읽어요. 쪽·단에서 끊긴 문단은 하나로 이어 보여 줍니다.</p>
+    <ul class="check">
+      <li>한글 / 대역 / 원문 보기 전환, 글자 크기 조절</li>
+      <li>그림·표·수식·알고리즘이 제자리에</li>
+      <li>본문 찾기(한·영), 그림·표 모아 보기, 용어집 탭</li>
+      <li>문단마다 다시 번역 · 직접 고치기 · 질문하기</li>
+    </ul>
+  </div>
+  <div class="shot"><picture><source srcset="assets/reader-dark.png" media="(prefers-color-scheme: dark)"><img src="assets/reader.png" alt="읽기 화면"></picture></div>
+</div></section>
+
+<section id="how"><div class="wrap">
+  <div class="eyebrow">HOW IT WORKS</div>
+  <h2>PDF 하나면 끝</h2>
+  <div class="steps">
+    <div class="step"><h3>PDF 넣기</h3><p>창에 끌어다 놓거나 '열기'. 쪽 구조·그림·수식 영역을 먼저 분석해요.</p></div>
+    <div class="step"><h3>분야·용어 파악</h3><p>초록과 절 제목으로 분야를 알아내고 용어집을 만들어요.</p></div>
+    <div class="step"><h3>번역·조판</h3><p>문단 단위로 앞뒤 문맥과 함께 번역하고, 끝난 쪽부터 바로 보여 줘요.</p></div>
+    <div class="step"><h3>읽고 묻기</h3><p>나란히 읽고, 형광펜 긋고, 도우미에게 묻고, PDF로 저장하세요.</p></div>
+  </div>
+</div></section>
+
+<section id="ai"><div class="wrap split">
+  <div class="txt">
+    <div class="eyebrow">AI</div>
+    <h2>쓰던 AI 그대로</h2>
+    <p class="desc">설정에서 Claude나 Codex를 고르고, PC에 로그인된 계정을 쓸지 API 키를 쓸지 정하면 됩니다. 키는 내 PC에만 저장돼요.</p>
+    <div class="ai">
+      <div class="card"><h3>Claude <span class="tag">권장</span></h3><p>이 PC에 로그인된 <b>Claude Code</b>의 구독을 그대로, 또는 Anthropic API 키.</p></div>
+      <div class="card"><h3>Codex</h3><p>이 PC에 로그인된 <b>Codex CLI</b>를 그대로, 또는 OpenAI API 키.</p></div>
+    </div>
+  </div>
+  <div class="shot"><img src="assets/settings.png" alt="설정 창: Claude와 Codex, 로그인과 API 키 선택"></div>
+</div></section>
+
+<section id="faq"><div class="wrap">
+  <div class="eyebrow">FAQ</div>
+  <h2>자주 묻는 질문</h2>
+  <details><summary>비용이 드나요?</summary><p>앱은 무료입니다. 번역과 질문은 선택한 AI를 쓰므로, PC에 로그인된 Claude Code나 Codex를 쓰면 그 구독 안에서, API 키를 쓰면 사용량만큼 과금됩니다. 논문 한 편(10쪽 안팎)은 보통 2~3분 걸려요.</p></details>
+  <details><summary>논문 파일이 외부로 나가나요?</summary><p>PDF는 내 PC에서 분석하고, 번역할 문단 글자만 선택한 AI(Claude 또는 OpenAI)로 보냅니다. 번역 결과와 형광펜은 내 PC 사용자 폴더에만 저장돼요.</p></details>
+  <details><summary>스캔한 PDF도 되나요?</summary><p>글자를 선택할 수 있는 PDF(대부분의 학술지·arXiv 논문)를 대상으로 합니다. 이미지로만 된 스캔본은 아직 지원하지 않아요.</p></details>
+  <details><summary>번역이 마음에 안 드는 문단은요?</summary><p>문단에서 '다시 번역'(요청 문구를 붙일 수 있어요)이나 '직접 수정'을 누르면 한글 PDF가 그 자리에서 다시 조판됩니다. 용어집을 고치면 해당 용어가 든 문단만 다시 번역해요.</p></details>
+  <details><summary>macOS에서 "확인되지 않은 개발자" 경고가 떠요.</summary><p>아직 Apple 인증서로 서명하지 않은 앱이라 그래요. 앱을 마우스 오른쪽 버튼으로 눌러 '열기'를 고르거나, 시스템 설정 › 개인정보 보호 및 보안에서 '그래도 열기'를 누르세요.</p></details>
+</div></section>
+
+<div class="wrap"><div class="final">
+  <h2>오늘 읽을 논문부터</h2>
+  <p style="opacity:.85;margin:0 0 6px">Windows 10·11, macOS 13 이상</p>
+  <div class="cta" style="margin-bottom:0">
+    <a class="btn win" href="https://github.com/Mingjaam/hanpaper/releases/latest/download/Hanpaper-Setup.exe">Windows용 받기</a>
+    <a class="btn mac" href="https://github.com/Mingjaam/hanpaper/releases/latest/download/Hanpaper.dmg">macOS용 받기</a>
+  </div>
+</div></div>
+
+<footer><div class="wrap">
+  <span>© 2026 Hanpaper · MIT License · 비공식 도구이며 Anthropic·OpenAI와 관련이 없습니다.</span>
+  <span>화면 속 예시 논문: Wei et al., <i>Chain-of-Thought Prompting Elicits Reasoning in Large Language Models</i> (arXiv:2201.11903, CC BY 4.0)</span>
+</div></footer>
+</body>
+</html>

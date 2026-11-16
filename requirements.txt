@@ -1,0 +1,4 @@
+PyMuPDF>=1.24,<2      # PDF analysis and Korean re-typesetting (2.x pulls in onnxruntime)
+pywebview>=5          # native window: Edge WebView2 (Windows), WKWebView (macOS)
+anthropic>=0.70       # API-key mode
+openai>=1.40          # OpenAI API-key mode (Codex provider)

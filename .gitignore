@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+build/
+dist/
+out/
+packaging/Output/
+packaging/*.ico
+packaging/*.icns
+packaging/*.iconset/
+packaging/hanpaper.png
+# local test papers (not ours to publish)
+samples/
