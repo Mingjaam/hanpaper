@@ -58,10 +58,40 @@ jobs:
         run: |
           python -m pip install -r requirements.txt
           python packaging/smoke_test.py
+      - name: Import signing certificate
+        # Skipped quietly when the secrets are not set (forks, or before the certificate is added).
+        env:
+          MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 }}
+          MAC_CERT_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+        run: |
+          if [ -z "$MAC_CERT_P12" ]; then echo "No signing certificate; building with an ad-hoc signature."; exit 0; fi
+          if [ -z "$MAC_CERT_PASSWORD" ]; then echo "::warning::MAC_CERT_PASSWORD is not set; building with an ad-hoc signature."; exit 0; fi
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          keychain_password=$(uuidgen)
+          echo "$MAC_CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$RUNNER_TEMP/cert.p12" -k "$keychain" -P "$MAC_CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -k "$keychain_password" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/cert.p12"
+          identity=$(security find-identity -v -p codesigning "$keychain" | grep "Developer ID Application" | head -1 | sed -E 's/.*"(.*)"/\1/')
+          if [ -z "$identity" ]; then echo "::error::No Developer ID Application identity in the certificate"; exit 1; fi
+          echo "MAC_SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+          echo "Signing as: $identity"
       - name: Build app
         env:
           PYTHON: python
-        run: bash packaging/build_mac.sh
+          MAC_NOTARY_KEY: ${{ secrets.MAC_NOTARY_KEY }}
+          MAC_NOTARY_KEY_ID: ${{ secrets.MAC_NOTARY_KEY_ID }}
+          MAC_NOTARY_ISSUER: ${{ secrets.MAC_NOTARY_ISSUER }}
+        run: |
+          if [ -n "$MAC_NOTARY_KEY" ] && [ -n "$MAC_SIGN_IDENTITY" ]; then
+            echo "$MAC_NOTARY_KEY" | base64 --decode > "$RUNNER_TEMP/notary.p8"
+            export MAC_NOTARY_KEY_PATH="$RUNNER_TEMP/notary.p8"
+          fi
+          bash packaging/build_mac.sh
       - name: Check bundle
         run: |
           test -x dist/Hanpaper.app/Contents/MacOS/Hanpaper
