@@ -91,7 +91,9 @@
 | **Windows 10 · 11** | [`Hanpaper-Setup.exe`](../../releases/latest/download/Hanpaper-Setup.exe) | 관리자 권한 없이 설치돼요. 압축 파일은 [`Hanpaper-windows-x64.zip`](../../releases/latest/download/Hanpaper-windows-x64.zip) |
 | **macOS 13+** | [`Hanpaper.dmg`](../../releases/latest/download/Hanpaper.dmg) | 앱을 응용 프로그램 폴더로 끌어다 놓으세요. 압축 파일은 [`Hanpaper-macos.zip`](../../releases/latest/download/Hanpaper-macos.zip) |
 
-> macOS에서 "확인되지 않은 개발자" 경고가 뜨면 앱을 **마우스 오른쪽 버튼 › 열기**를 누르거나, **시스템 설정 › 개인정보 보호 및 보안 › 그래도 열기**를 누르세요. (아직 Apple 인증서로 서명하지 않았어요.)
+> macOS 앱은 Apple Developer ID로 서명하고 Apple 공증을 받았어요. 처음 열 때 "인터넷에서 받은 앱" 확인 창만 한 번 뜹니다.
+>
+> Windows에서 "Windows의 PC 보호" 파란 창이 뜨면 **추가 정보 › 실행**을 누르세요. (Windows 코드 서명 인증서는 아직 없어요.)
 
 ## AI 연결
 
