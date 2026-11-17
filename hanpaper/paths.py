@@ -5,7 +5,7 @@ import sys
 
 APP_NAME = "한페이퍼"
 APP_ID = "Hanpaper"
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 FROZEN = bool(getattr(sys, "frozen", False))
 WIN = sys.platform == "win32"
 MAC = sys.platform == "darwin"

@@ -21,5 +21,5 @@ exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="Hanpaper", icon=ICON 
 coll = COLLECT(exe, a.binaries, a.datas, name="Hanpaper")
 if MAC:
     app = BUNDLE(coll, name="Hanpaper.app", icon=ICON if os.path.exists(ICON) else None, bundle_identifier="io.github.mingjaam.hanpaper",
-                 info_plist={"CFBundleDisplayName": "한페이퍼", "CFBundleShortVersionString": "1.0.0", "NSHighResolutionCapable": True,
+                 info_plist={"CFBundleDisplayName": "한페이퍼", "CFBundleShortVersionString": "1.1.0", "NSHighResolutionCapable": True,
                              "CFBundleDocumentTypes": [{"CFBundleTypeName": "PDF", "LSItemContentTypes": ["com.adobe.pdf"], "CFBundleTypeRole": "Viewer"}]})

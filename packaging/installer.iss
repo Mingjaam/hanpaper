@@ -1,7 +1,7 @@
 ﻿; Hanpaper (한페이퍼) installer (Inno Setup 6). Per-user install: no administrator rights needed.
 #define AppName "한페이퍼"
 #ifndef AppVersion
-  #define AppVersion "1.0.0"
+  #define AppVersion "1.1.0"
 #endif
 #define AppExe "Hanpaper.exe"
 
