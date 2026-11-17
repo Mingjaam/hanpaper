@@ -2,3 +2,4 @@ PyMuPDF>=1.24,<2      # PDF analysis and Korean re-typesetting (2.x pulls in onn
 pywebview>=5          # native window: Edge WebView2 (Windows), WKWebView (macOS)
 anthropic>=0.70       # API-key mode
 openai>=1.40          # OpenAI API-key mode (Codex provider)
+lxml>=5               # Word (.docx) papers: read and rewrite paragraphs

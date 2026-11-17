@@ -28,21 +28,33 @@ import llm
 import paths
 import pdfcore
 import settings
+import sources
 
 
 def jload(p, default=None):
-    try:
-        with open(p, encoding="utf-8") as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        return default
+    for k in range(20):
+        try:
+            with open(p, encoding="utf-8") as f:
+                return json.load(f)
+        except PermissionError:          # Windows: the file is being swapped in by a writer
+            time.sleep(0.03)
+        except (OSError, ValueError):
+            return default
+    return default
 
 
 def jsave(p, data):
-    tmp = p + ".tmp"
+    tmp = f"{p}.{threading.get_ident()}.tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False)
-    os.replace(tmp, p)
+    for k in range(40):                 # Windows: a reader holding the file open blocks the swap for a moment
+        try:
+            os.replace(tmp, p)
+            return
+        except PermissionError:
+            if k == 39:
+                raise
+            time.sleep(0.05)
 
 
 # ================================================================================================ prompts
@@ -61,6 +73,24 @@ TRANSLATE_SYSTEM = """당신은 {field} 분야의 영어 학술 논문을 한국
 10. 저자 이름·소속처럼 번역할 필요가 없는 항목은 원문 그대로 돌려준다.
 
 출력은 JSON 객체 하나뿐이다. 키는 항목 id, 값은 번역문. 설명, 코드펜스, 다른 글은 쓰지 않는다."""
+
+SOURCE_SYSTEM = """당신은 {field} 분야의 영어 학술 논문을 한국어로 옮기는 전문 번역가다. 원고는 {fmt} 원본에서 뽑은 문단이고, 번역문은 원본에 다시 넣어 {engine} 그대로 조판한다. 그래서 그림·수식·표는 원본 그대로 남고, 글만 바뀐다.
+
+규칙
+1. 빠짐없이 전부 번역한다. 요약·생략·덧붙임 금지. 영어 어순보다 한국 학술 논문다운 자연스러운 문장(~한다, ~이다)으로 쓴다. 글자 수 제약은 없다.
+2. 용어는 한국의 {field} 학계·교과서·국내 논문에서 실제로 쓰는 말을 쓴다. 아래 용어집이 있으면 반드시 그대로 따른다. 국내 연구자들이 음차나 영어로 쓰는 용어(예: 트랜스포머, 어텐션, 임베딩, 파인튜닝)는 억지로 우리말로 바꾸지 않고, 우리말로 굳어진 용어(예: 강화학습, 합성곱, 손실 함수)는 우리말로 쓴다.
+3. ⟦1⟧ ⟦2⟧ 같은 자리표시는 수식·인용·참조 등 원본에서 그대로 둘 부분이다. 각 항목의 "keep"에 원래 내용이 있으니 뜻을 이해하는 데 쓰고, 번역문에는 자리표시를 각각 정확히 한 번씩, 문맥상 알맞은 자리에 그대로 쓴다. 자리표시를 풀어 쓰거나 빼거나 새로 만들지 않는다.
+4. {markup}
+5. 그대로 두는 것: 고유명사, 모델·데이터셋·도구 이름, 약어, 숫자와 단위, 사람 이름, 코드.
+6. 제목·절 제목은 짧게 옮긴다("Introduction"→"서론", "Related Work"→"관련 연구", "Conclusion"→"결론"). 번호는 원본이 자동으로 붙이므로 따로 쓰지 않는다(원문에 있으면 유지).
+7. 항목에 "continues"(다음 조각 id)나 "continued_from"(앞 조각 id)이 있으면, 한 문단이 사이에 낀 수식 때문에 나뉜 것이다. 이어지는 한 문단으로 자연스럽게 번역하되 각 조각은 제자리에 둔다(예: 수식 뒤 "where x is ..."는 "여기서 x는 ...이다.").
+8. 저자 이름·소속처럼 번역할 필요가 없는 항목은 원문 그대로 돌려준다.
+
+출력은 JSON 객체 하나뿐이다. 키는 항목 id, 값은 번역문. 설명, 코드펜스, 다른 글은 쓰지 않는다."""
+
+TEX_MARKUP = ("LaTeX 명령(\\textbf{..}, \\emph{..}, \\textit{..}, \\footnote{..}, \\\\, ~ 등)은 그대로 두고 중괄호 안의 글만 번역한다. "
+              "중괄호 짝을 맞춘다. 새 LaTeX 명령이나 마크다운을 만들지 않는다. %, &, #, _ 를 글자로 쓰려면 \\%, \\&, \\#, \\_ 로 쓴다.")
+DOCX_MARKUP = "인라인 태그 <b> <i> <u> <sup> <sub>는 같은 대상에 그대로 남긴다. 그 밖의 태그나 마크다운은 쓰지 않는다."
 
 GLOSSARY_SYSTEM = """당신은 영어 학술 논문의 한국어 번역을 위한 용어집을 만드는 편집자다. 논문의 분야를 판단하고, 그 분야 한국 학계·교과서·국내 학술지에서 실제로 통용되는 한국어 용어를 정한다.
 
@@ -100,6 +130,9 @@ class Paper:
         self.render_lock = threading.Lock()
         self._doc = None
         self.job = None
+        self._want_build = False
+        self._builder = None
+        self._last_build = 0
 
     # ---- files
     def f(self, *p):
@@ -108,6 +141,23 @@ class Paper:
     @property
     def pdf(self):
         return self.f("original.pdf")
+
+    @property
+    def kind(self):
+        if getattr(self, "_kind", None) is None:
+            m = self.meta()
+            if not m:
+                return "pdf"
+            self._kind = m.get("kind") or "pdf"
+        return self._kind
+
+    @property
+    def is_src(self):
+        return self.kind in ("tex", "docx")
+
+    @property
+    def ko_pdf(self):
+        return self.f("ko.pdf")
 
     def meta(self):
         return jload(self.f("meta.json"), {})
@@ -165,17 +215,31 @@ class Paper:
                 "pages": m.get("pages"), "status": m.get("status"), "progress": m.get("progress"),
                 "error": m.get("error"), "created": m.get("created"), "opened": m.get("opened"), "field": m.get("field")}
 
+    PUB = ("id", "page", "kind", "translate", "bbox", "lines", "size", "text", "ko", "figure", "table", "err", "sans", "bold", "edited", "prev", "next", "geo", "level")
+
+    def pub(self, u):
+        """A unit as the page sees it: ko_html for the reader, ko as plain text."""
+        out = {k: u.get(k) for k in self.PUB}
+        if self.is_src:
+            if u.get("kind") != "equation":
+                out["en_html"] = sources.html(self, u, "en")
+            if u.get("ko"):
+                out["ko_html"] = sources.html(self, u, "ko")
+                out["ko_src"] = u["ko"]
+                out["ko"] = sources.plain_ko(self, u)
+        elif u.get("ko"):
+            out["ko_html"] = pdfcore._clean_ko(u["ko"])
+            out["ko"] = pdfcore.plain(u["ko"])
+        return out
+
     def state(self):
         d = self.doc() or {}
         m = self.meta()
-        units = [{k: u.get(k) for k in ("id", "page", "kind", "translate", "bbox", "lines", "size", "text", "ko", "figure", "table", "err", "sans", "bold", "edited", "prev", "next")}
-                 for u in d.get("units", [])]
-        for u in units:                     # tags out for the reader
-            if u.get("ko"):
-                u["ko_html"] = pdfcore._clean_ko(u["ko"])
-                u["ko"] = pdfcore.plain(u["ko"])
-        return {"id": self.id, "meta": m, "pages": d.get("pages", []), "units": units, "figures": d.get("figures", []),
-                "tables": d.get("tables", []), "equations": d.get("equations", []), "body_size": d.get("body_size", 10),
+        with self.lock:
+            units = [self.pub(u) for u in d.get("units", [])]
+        return {"id": self.id, "meta": m, "kind": self.kind, "pages": d.get("pages", []), "ko_pages": m.get("ko_pages") if self.is_src else None,
+                "units": units, "figures": d.get("figures", []), "tables": d.get("tables", []), "equations": d.get("equations", []),
+                "body_size": d.get("body_size", 10), "macros": d.get("macros") or {},
                 "glossary": self.glossary(), "notes": self.notes(), "running": bool(self.job and self.job.alive())}
 
     # ---- page images
@@ -185,7 +249,11 @@ class Paper:
         os.makedirs(self.f("cache"), exist_ok=True)
         out = self.f("cache", f"{side}_{n}_{zoom}_{rev}.png")
         if not os.path.exists(out):
-            if side == "ko" and os.path.exists(self.ko_page(n)):
+            if side == "ko" and self.is_src:
+                if not os.path.exists(self.ko_pdf):
+                    raise ValueError("아직 한국어 PDF가 없습니다")
+                src, pno = self.ko_pdf, n
+            elif side == "ko" and os.path.exists(self.ko_page(n)):
                 src, pno = self.ko_page(n), 0
             else:
                 src, pno = self.pdf, n
@@ -203,6 +271,10 @@ class Paper:
     def fig_png(self, kind, i, side="en"):
         d = self.doc()
         item = (d["figures"] if kind == "fig" else d["tables"])[i]
+        if item.get("media") and (not item.get("bbox") or self.kind == "docx"):
+            out = self.media_png(item["media"][0])
+            if out:
+                return out
         n = item["page"]
         rev = self.page_rev(n) if side == "ko" else 0
         os.makedirs(self.f("cache"), exist_ok=True)
@@ -212,6 +284,26 @@ class Paper:
             ko = side == "ko" and os.path.exists(self.ko_page(n))
             pdfcore.crop_png(self.ko_page(n) if ko else self.pdf, 0 if ko else n, item["bbox"], out)
         return out
+
+    def media_png(self, name):
+        """A picture from the .docx itself, as PNG (None if it is a format we cannot draw, e.g. EMF)."""
+        import zipfile
+        os.makedirs(self.f("cache"), exist_ok=True)
+        out = self.f("cache", "media_" + hashlib.md5(name.encode()).hexdigest()[:12] + ".png")
+        if os.path.exists(out):
+            return out
+        try:
+            with zipfile.ZipFile(self.f("source.docx")) as z:
+                blob = z.read(name)
+            ext = os.path.splitext(name)[1].lower().lstrip(".")
+            with pymupdf.open(stream=blob, filetype=ext) as im:
+                pix = im[0].get_pixmap(dpi=144) if ext in ("svg",) else pymupdf.Pixmap(blob)
+                if pix.alpha and ext not in ("png",):
+                    pix = pymupdf.Pixmap(pix, 0)
+                pix.save(out)
+            return out
+        except Exception:  # noqa: BLE001
+            return None
 
     def crop_png(self, side, n, r):
         rev = self.page_rev(n) if side == "ko" else 0
@@ -225,6 +317,9 @@ class Paper:
 
     # ---- rendering
     def render(self, n):
+        if self.is_src:                     # source papers: the whole Korean PDF is rebuilt (soon, coalesced)
+            self.build_soon()
+            return
         d = self.doc()
         with self.render_lock:
             os.makedirs(self.f("ko"), exist_ok=True)
@@ -240,6 +335,43 @@ class Paper:
                     if u["id"] in fit:
                         u["fit"] = fit[u["id"]]
             self.bump_page(n)
+
+    def build_soon(self, delay=1.0):
+        with self.lock:
+            self._want_build = True
+            if self._builder and self._builder.is_alive():
+                return
+            self._builder = threading.Thread(target=self._build_loop, args=(delay,), daemon=True)
+            self._builder.start()
+
+    def _build_loop(self, delay):
+        time.sleep(delay)
+        while True:
+            with self.lock:
+                if not self._want_build:
+                    return
+                self._want_build = False
+            try:
+                self.build_ko()
+            except Exception as ex:  # noqa: BLE001
+                import traceback
+                traceback.print_exc()
+                self.set_meta(build_error=str(ex)[:300])
+
+    def building(self):
+        return bool(self._builder and self._builder.is_alive())
+
+    def build_ko(self, report=None):
+        """Make the Korean PDF from the translated source (LaTeX / docx) and map units onto it."""
+        with self.render_lock:
+            self._last_build = time.time()
+            pages = sources.build(self, report or (lambda msg: None))
+            self.save_doc()
+            with self.lock:
+                m = self.meta()
+                kr = m.get("ko_rev", 0) + 1
+                m.update(ko_pages=pages, ko_rev=kr, page_rev={str(i): kr for i in range(len(pages))}, rev=m.get("rev", 0) + 1, build_error=None)
+                jsave(self.f("meta.json"), m)
 
     def page_done(self, n):
         d = self.doc()
@@ -269,6 +401,35 @@ def library():
             out.append(p.summary())
     out.sort(key=lambda s: s.get("opened") or s.get("created") or 0, reverse=True)
     return out
+
+
+def import_file(data, name):
+    """A PDF, a LaTeX source archive (.zip/.tar.gz/.tex) or a Word .docx."""
+    kind = sources.detect(data, name)
+    if kind == "pdf":
+        return import_pdf(data, name)
+    if kind is None:
+        raise ValueError("PDF, LaTeX 소스(.zip·.tar.gz·.tex), Word(.docx) 파일만 열 수 있습니다")
+    h = hashlib.sha1(data).hexdigest()[:12]
+    p = get(h)
+    if p is None:
+        d = os.path.join(paths.PAPERS, h)
+        os.makedirs(d, exist_ok=True)
+        try:
+            if kind == "tex":
+                import texsrc
+                texsrc.unpack(data, name, os.path.join(d, "src"))
+            else:
+                with open(os.path.join(d, "source.docx"), "wb") as f:
+                    f.write(data)
+        except Exception as ex:  # noqa: BLE001
+            shutil.rmtree(d, ignore_errors=True)
+            raise ValueError(f"파일을 풀 수 없습니다: {ex}")
+        p = get(h)
+        p.set_meta(id=h, file=name, kind=kind, title="", pages=None, created=time.time(), status="queued",
+                   progress={"done": 0, "total": 0}, page_rev={}, rev=0)
+    start(p)
+    return p
 
 
 def import_pdf(data, name):
@@ -339,8 +500,12 @@ class Job:
         p = self.p
         try:
             if not os.path.exists(p.f("doc.json")):
-                p.set_meta(status="analyzing", error=None)
-                d = pdfcore.analyze(p.pdf)
+                p.set_meta(status="analyzing", error=None, step=None)
+                if p.is_src:
+                    d = sources.prepare(p, lambda msg: p.set_meta(step=msg))
+                    p.set_meta(pages=len(d["pages"]), step=None)
+                else:
+                    d = pdfcore.analyze(p.pdf)
                 st = settings.get()
                 for u in d["units"]:
                     if u["kind"] == "table" and not st.get("translate_tables", True):
@@ -353,7 +518,7 @@ class Job:
                 m = p.meta()
                 if not m.get("title"):
                     t = next((u["text"] for u in d["units"] if u["kind"] == "title"), "") or \
-                        max((u for u in d["units"] if u["page"] == 0), key=lambda u: u["size"], default={}).get("text", "")
+                        max((u for u in d["units"] if u["page"] == 0), key=lambda u: u.get("size") or 0, default={}).get("text", "")
                     p.set_meta(title=t[:200])
             d = p.doc()
             if not jload(p.f("glossary.json")):
@@ -361,11 +526,13 @@ class Job:
                 self._glossary(d)
             self._translate_all()
         except llm.LLMError as ex:
-            p.set_meta(status="error", error=str(ex))
+            p.set_meta(status="error", error=str(ex), step=None)
+        except (ValueError, RuntimeError) as ex:
+            p.set_meta(status="error", error=str(ex), step=None)
         except Exception as ex:  # noqa: BLE001
             import traceback
             traceback.print_exc()
-            p.set_meta(status="error", error=f"{type(ex).__name__}: {ex}")
+            p.set_meta(status="error", error=f"{type(ex).__name__}: {ex}", step=None)
 
     # ---- glossary
     def _glossary(self, d):
@@ -403,7 +570,7 @@ class Job:
         p.set_meta(status="translating", error=None, progress={"done": done, "total": total})
         pages_left = sorted({u["page"] for u in d["units"]}) if only is None else sorted({u["page"] for u in todo})
         # pages with nothing to translate are ready at once
-        for n in list(pages_left):
+        for n in list(pages_left) if not p.is_src else ():
             if only is None and p.page_done(n) and not os.path.exists(p.ko_page(n)):
                 p.render(n)
         batches = make_batches(d["units"], todo)
@@ -415,6 +582,7 @@ class Job:
             ctx[id(b)] = (flow[i0 - 1]["text"] if i0 else "", flow[i1 + 1]["text"] if i1 is not None and i1 + 1 < len(flow) else "")
         rendered, processed = set(), set()
         failures = 0
+        src = p.is_src
         with ThreadPoolExecutor(max_workers=max(1, min(6, int(st.get("workers") or 3)))) as ex:
             futs = {ex.submit(self._batch, b, ctx[id(b)], extra): b for b in batches}
             for fut in as_completed(futs):
@@ -442,13 +610,25 @@ class Job:
                 p.save_doc()
                 p.set_meta(progress={"done": done, "total": total})
                 processed.add(fut)
+                if src:                                   # a fresh Korean PDF now and then while translating
+                    gap = 25 if not os.path.exists(p.ko_pdf) else 75
+                    if time.time() - p._last_build > gap and not p.building() and len(processed) < len(futs):
+                        p._last_build = time.time()
+                        p.build_soon(0)
+                    continue
                 for n in sorted({u["page"] for u in b}):
                     if n not in rendered and self._ready(n, futs, processed):
                         p.render(n)
                         rendered.add(n)
         if self.stop.is_set() and p.meta().get("status") == "error":
             return
-        for n in pages_left:                          # anything left (errors) still gets a page
+        if src:
+            p.set_meta(status="building", step="한국어 PDF를 조판하는 중…")
+            while p.building():
+                time.sleep(0.5)
+            p.build_ko(lambda msg: p.set_meta(step=msg))
+            p.set_meta(step=None)
+        for n in pages_left if not src else ():       # anything left (errors) still gets a page
             if n not in rendered:
                 p.render(n)
         errs = sum(1 for u in d["units"] if u["translate"] and not u.get("ko"))
@@ -466,9 +646,16 @@ class Job:
         p = self.p
         g = p.glossary()
         st = settings.get()
-        items = []
+        items, masks = [], {}
         for u in units:
-            it = {"id": u["id"], "kind": u["kind"], "src": u["src"]}
+            if p.is_src:
+                m, keep = sources.masked(p, u)
+                masks[u["id"]] = (m, keep)
+                it = {"id": u["id"], "kind": u["kind"], "src": m}
+                if keep:
+                    it["keep"] = keep
+            else:
+                it = {"id": u["id"], "kind": u["kind"], "src": u["src"]}
             if u.get("next"):
                 it["continues"] = u["next"]
             if u.get("prev"):
@@ -481,8 +668,13 @@ class Job:
         if extra:
             user += f"[사용자 요청]\n{extra}\n\n"
         user += "[번역할 항목]\n" + json.dumps(items, ensure_ascii=False)
-        system = TRANSLATE_SYSTEM.format(field=g.get("field") or "해당")
-        out = {}
+        if p.is_src:
+            tex = p.kind == "tex"
+            system = SOURCE_SYSTEM.format(field=g.get("field") or "해당", fmt="LaTeX" if tex else "Word(.docx)",
+                                          engine="TeX으로" if tex else "Word로", markup=TEX_MARKUP if tex else DOCX_MARKUP)
+        else:
+            system = TRANSLATE_SYSTEM.format(field=g.get("field") or "해당")
+        out, probs = {}, {}
         for attempt in range(2):
             try:
                 r = llm.parse_json(llm.complete(system, user, "translate", st.get("effort_translate") or "low"))
@@ -494,11 +686,24 @@ class Job:
                 r = {x.get("id"): x.get("ko") or x.get("text") for x in r if isinstance(x, dict)}
             for u in units:
                 v = r.get(u["id"])
-                if isinstance(v, str) and v.strip():
-                    out[u["id"]] = v.strip()
+                if not (isinstance(v, str) and v.strip()) or u["id"] in out:
+                    continue
+                v = v.strip()
+                if p.is_src:
+                    m, keep = masks[u["id"]]
+                    val, prob = sources.accept(p, u, v, m, keep)
+                    if prob:
+                        probs[u["id"]] = prob
+                        continue
+                    probs.pop(u["id"], None)
+                    v = val
+                out[u["id"]] = v
             missing = [x for x in items if x["id"] not in out]
             if not missing:
                 break
+            for x in missing:
+                if x["id"] in probs:
+                    x["problem_last_time"] = probs[x["id"]]
             user = user.rsplit("[번역할 항목]", 1)[0] + "[번역할 항목]\n" + json.dumps(missing, ensure_ascii=False)
         return out
 
@@ -572,9 +777,10 @@ def set_translation(p, uid, ko):
     if not u:
         raise ValueError("문단을 찾을 수 없습니다")
     with p.lock:
-        u["ko"] = html.escape(ko, quote=False) if "<" not in ko else ko
+        u["ko"] = ko if p.kind == "tex" else (html.escape(ko, quote=False) if "<" not in ko else ko)
         u["translate"] = True
         u["edited"] = True
+        u.pop("err", None)
     p.save_doc()
     p.render(u["page"])
     return u
@@ -625,7 +831,10 @@ def _safe(job, fn):
 
 # ================================================================================================ export
 def export(p, kind, out_path, with_marks=True):
-    """kind: ko (Korean paper), en (English original), side (English | Korean on one wide page). Highlights optional."""
+    """kind: ko (Korean paper), en (English original), side (English | Korean on one wide page). Highlights optional.
+    Source papers also: src (the translated LaTeX as .zip / the Korean .docx)."""
+    if p.is_src:
+        return export_src(p, kind, out_path, with_marks)
     d = p.doc()
     marks = p.notes().get("marks", []) if with_marks else []
     n = len(d["pages"])
@@ -655,6 +864,57 @@ def export(p, kind, out_path, with_marks=True):
     out.save(out_path, garbage=3, deflate=True)
     out.close()
     return out_path
+
+
+def export_src(p, kind, out_path, with_marks):
+    if kind == "src":
+        return sources.export_source(p, out_path)
+    if not os.path.exists(p.ko_pdf) and kind != "en":
+        raise ValueError("아직 한국어 PDF가 없습니다")
+    marks = p.notes().get("marks", []) if with_marks else []
+    out = pymupdf.open()
+    en = pymupdf.open(p.pdf)
+    ko = pymupdf.open(p.ko_pdf) if os.path.exists(p.ko_pdf) else None
+    if kind in ("ko", "en"):
+        out.insert_pdf(ko if kind == "ko" else en)
+        for i in range(out.page_count):
+            _marks_geo(out[i], p, marks, kind, i, 0)
+    else:
+        n = max(en.page_count, ko.page_count)
+        for i in range(n):
+            a = en[i] if i < en.page_count else None
+            b = ko[i] if i < ko.page_count else None
+            W = max((x.rect.width for x in (a, b) if x is not None), default=612)
+            H = max((x.rect.height for x in (a, b) if x is not None), default=792)
+            page = out.new_page(width=W * 2 + 18, height=H)
+            if a is not None:
+                page.show_pdf_page(pymupdf.Rect(0, 0, a.rect.width, a.rect.height), en, i)
+                _marks_geo(page, p, marks, "en", i, 0)
+            if b is not None:
+                page.show_pdf_page(pymupdf.Rect(W + 18, 0, W + 18 + b.rect.width, b.rect.height), ko, i)
+                _marks_geo(page, p, marks, "ko", i, W + 18)
+            page.draw_line((W + 9, 20), (W + 9, H - 20), color=(0.8, 0.8, 0.8), width=0.6)
+    en.close()
+    if ko:
+        ko.close()
+    out.save(out_path, garbage=3, deflate=True)
+    out.close()
+    return out_path
+
+
+def _marks_geo(page, p, marks, side, i, dx):
+    for m in marks:
+        u = p.unit(m.get("unit")) if m.get("unit") else None
+        if not u:
+            continue
+        for r in (u.get("geo") or {}).get(side, []):
+            if r[0] != i:
+                continue
+            a = page.add_rect_annot(pymupdf.Rect(r[1] + dx, r[2] - 0.5, r[3] + dx, r[4] + 0.5))
+            a.set_colors(stroke=None, fill=_rgb(m.get("color") or "#ffd43b"))
+            a.set_opacity(0.33)
+            a.set_border(width=0)
+            a.update()
 
 
 def _marks(page, p, marks, side, i, dx):

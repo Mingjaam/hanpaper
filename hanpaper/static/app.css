@@ -347,3 +347,15 @@ input.txt:focus,select.txt:focus,textarea.txt:focus{border-color:var(--accent);b
 .toast{background:var(--ink);color:var(--bg);border-radius:10px;padding:9px 14px;font-size:13px;box-shadow:var(--shadow-3);animation:pop .15s;pointer-events:auto;display:flex;gap:10px;align-items:center;max-width:70vw}
 .toast.err{background:var(--danger);color:#fff}
 .toast button{border:0;background:rgba(255,255,255,.18);color:inherit;border-radius:6px;padding:3px 8px;font-size:12px}
+
+/* source papers */
+.nopages{display:flex;gap:10px;align-items:center;justify-content:center;margin:40px 20px;padding:18px 20px;border:1px dashed var(--line);border-radius:12px;color:var(--muted);font:13px/1.6 var(--ui);text-align:left}
+.reader .cite,.reader .ref{color:var(--accent)}
+.reader .fn{font-size:.82em;color:var(--muted)}
+.reader .fn::before{content:" ["}
+.reader .fn::after{content:"]"}
+.reader .url{word-break:break-all;color:var(--accent)}
+.reader span.tex{font-size:1em}
+.reader span.tex.d{display:block;text-align:center;margin:.4em 0}
+.reader .katex{font-size:1.05em}
+.drop .sub2{font-size:12px;color:var(--muted);margin-top:2px}

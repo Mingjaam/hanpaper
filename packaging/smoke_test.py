@@ -45,3 +45,45 @@ assert "한국어" in text, "Korean text missing from the rendered page"
 assert "Deep reinforcement" not in text, "English text was not replaced"
 assert min(fit.values()) > 0, "a unit could not be placed"
 print(f"ok: {len(units)} units, {len(todo)} translated, figures={len(a['figures'])}, min scale={min(fit.values())}")
+
+# ---- LaTeX sources: splitting, masking for the translator, rebuilding (no TeX engine needed)
+import latex  # noqa: E402
+import texsrc  # noqa: E402
+
+TEX = r"""\documentclass{article}
+\title{A Small Test}
+\begin{document}
+\maketitle
+\begin{abstract}
+We study $x_i$ under noise \cite{a} and show gains.
+\end{abstract}
+\section{Introduction}\label{sec:intro}
+The loss is defined as
+\begin{equation}
+L = \sum_i (y_i - \hat y_i)^2
+\end{equation}
+where $y_i$ is the target, see Fig.~\ref{fig:a}.
+\begin{figure}[t]\centering\includegraphics{a.png}\caption{An example figure.}\label{fig:a}\end{figure}
+\begin{itemize}
+\item First point with \textbf{bold} words.
+\item Second point.
+\end{itemize}
+\end{document}
+"""
+sp = texsrc.Splitter(TEX).run()
+kinds = [u["kind"] for u in sp.units]
+assert kinds.count("title") == 1 and "heading" in kinds and "caption" in kinds and "equation" in kinds, kinds
+assert sum(1 for u in sp.units if u.get("prev_i") is not None) == 1, "text after the equation should continue the paragraph"
+para = next(TEX[u["a"]:u["b"]] for u in sp.units if u["kind"] == "para")
+m, keep = latex.mask(para)
+assert "$x_i$" not in m and len(keep) == 2, (m, keep)
+ko = "우리는 잡음 아래에서 " + " ".join(keep) + " 를 연구하고 100% 이득을 보인다."
+assert latex.check(m, keep, ko) is None
+back = latex.unmask(ko, keep, m)
+assert "$x_i$" in back and r"\cite{a}" in back and r"100\%" in back, back
+assert latex.check(m, keep, "자리표시 없음") is not None
+units = [dict(u, id=f"u{i}") for i, u in enumerate(sp.units)]
+out, spans = texsrc.build_ko(TEX, units, lambda u: "그림 설명" if u["kind"] == "caption" else None)
+assert r"\caption{그림 설명}" in out and r"\usepackage{kotex}" in out and all(isinstance(v, tuple) for v in spans.values())
+assert "<b>bold</b>" in latex.to_html(r"with \textbf{bold} words")
+print(f"ok: LaTeX {len(sp.units)} units, {len(sp.regions)} regions")

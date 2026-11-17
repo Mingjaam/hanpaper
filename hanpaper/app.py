@@ -121,17 +121,19 @@ def main():
         background_color="#17181b" if dark else "#f5f5f2")
 
     def pick():
-        r = window.create_file_dialog(webview.OPEN_DIALOG, allow_multiple=False, file_types=("PDF 파일 (*.pdf)", "모든 파일 (*.*)"))
+        r = window.create_file_dialog(webview.OPEN_DIALOG, allow_multiple=False, file_types=("논문 파일 (*.pdf;*.zip;*.tar.gz;*.tgz;*.tar;*.gz;*.tex;*.docx)", "PDF (*.pdf)", "LaTeX 소스 (*.zip;*.tar.gz;*.tgz;*.tar;*.gz;*.tex)", "Word (*.docx)", "모든 파일 (*.*)"))
         return os.path.normpath(r[0]) if r else ""
 
     def save(name):
         start = os.path.join(os.path.expanduser("~"), "Documents")
+        ext = os.path.splitext(name)[1].lower() or ".pdf"
+        label = {".pdf": "PDF (*.pdf)", ".zip": "LaTeX 소스 압축 (*.zip)", ".docx": "Word (*.docx)"}.get(ext, f"(*{ext})")
         r = window.create_file_dialog(webview.SAVE_DIALOG, directory=start if os.path.isdir(start) else "", save_filename=name,
-                                      file_types=("PDF 파일 (*.pdf)",))
+                                      file_types=(label,))
         if not r:
             return ""
         f = r if isinstance(r, str) else r[0]
-        return f if f.lower().endswith(".pdf") else f + ".pdf"
+        return f if f.lower().endswith(ext) else f + ext
 
     def focus():
         try:

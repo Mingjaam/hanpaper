@@ -9,7 +9,8 @@ MAC = sys.platform == "darwin"
 ICON = os.path.join(SPECPATH, "hanpaper.icns" if MAC else "hanpaper.ico")
 
 datas = [(os.path.join(SRC, "static"), "hanpaper/static")]
-hidden = ["server", "papers", "pdfcore", "llm", "chat", "settings", "paths", "pymupdf", "anthropic", "openai"]
+hidden = ["server", "papers", "pdfcore", "llm", "chat", "settings", "paths", "sources", "texsrc", "docxsrc", "latex", "synctex",
+          "pymupdf", "anthropic", "openai", "lxml.etree"]
 hidden += ["webview.platforms.cocoa"] if MAC else ["webview.platforms.winforms", "webview.platforms.edgechromium", "clr"]
 excludes = ["tkinter", "matplotlib", "numpy.tests", "pytest", "IPython"]
 

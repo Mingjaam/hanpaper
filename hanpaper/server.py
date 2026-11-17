@@ -99,14 +99,16 @@ class H(BaseHTTPRequestHandler):
     def _paper_get(self, p, sub, q):
         if sub == "/":
             p.set_meta(opened=time.time())
-            if p.meta().get("status") in ("queued", "analyzing", "glossary", "translating") and not (p.job and p.job.alive()):
+            if p.meta().get("status") in ("queued", "analyzing", "glossary", "translating", "building") and not (p.job and p.job.alive()):
                 papers.start(p, force=True)            # the app was closed mid-translation: carry on
             return self._send(200, p.state())
         if sub == "/progress":
             m = p.meta()
             return self._send(200, {"status": m.get("status"), "progress": m.get("progress"), "error": m.get("error"),
                                     "page_rev": m.get("page_rev") or {}, "rev": m.get("rev", 0), "running": bool(p.job and p.job.alive()),
-                                    "field": m.get("field"), "title": m.get("title")})
+                                    "field": m.get("field"), "title": m.get("title"), "step": m.get("step"),
+                                    "ko_pages": m.get("ko_pages") if p.is_src else None, "build_error": m.get("build_error"),
+                                    "building": p.building() if p.is_src else False})
         if sub == "/units":
             st = p.state()
             return self._send(200, {"units": st["units"], "glossary": st["glossary"], "tables": st["tables"]})
@@ -144,9 +146,7 @@ class H(BaseHTTPRequestHandler):
                     return self._send(413, {"error": "파일이 너무 큽니다 (300MB 초과)"})
                 data = self.rfile.read(n)
                 name = urllib.parse.unquote(self.headers.get("X-File-Name") or "paper.pdf")
-                if not data.startswith(b"%PDF"):
-                    return self._send(400, {"error": "PDF 파일이 아닙니다"})
-                p = papers.import_pdf(data, name)
+                p = papers.import_file(data, name)
                 return self._send(200, {"id": p.id})
             body = self._json()
             if path == "/api/open":
@@ -154,9 +154,7 @@ class H(BaseHTTPRequestHandler):
                 if not f:
                     return self._send(200, {"cancel": True})
                 data = open(f, "rb").read()
-                if not data.startswith(b"%PDF"):
-                    return self._send(400, {"error": "PDF 파일이 아닙니다"})
-                p = papers.import_pdf(data, os.path.basename(f))
+                p = papers.import_file(data, os.path.basename(f))
                 return self._send(200, {"id": p.id})
             if path == "/api/settings":
                 cur = settings.update(body)
@@ -189,11 +187,13 @@ class H(BaseHTTPRequestHandler):
             return self._send(200, {"ok": papers.delete(p.id)})
         if act == "resume":
             if b.get("restart"):
-                for f in ("doc.json", "glossary.json"):
+                for f in ("doc.json", "glossary.json", "ko.pdf"):
                     try:
                         os.remove(p.f(f))
                     except OSError:
                         pass
+                if p.is_src:
+                    p.set_meta(ko_pages=None, page_rev={})
                 p._doc = None
                 shutil.rmtree(p.f("cache"), ignore_errors=True)    # page images and crops of the old analysis
             ok = papers.start(p, force=True)
@@ -204,13 +204,13 @@ class H(BaseHTTPRequestHandler):
             return self._send(200, {"ok": True})
         if act == "retranslate":
             u = papers.retranslate(p, b["unit"], b.get("instruction", ""))
-            return self._send(200, {"ok": True, "unit": _pub(u)})
+            return self._send(200, {"ok": True, "unit": p.pub(u)})
         if act == "edit":
             u = papers.set_translation(p, b["unit"], b.get("ko", ""))
-            return self._send(200, {"ok": True, "unit": _pub(u)})
+            return self._send(200, {"ok": True, "unit": p.pub(u)})
         if act == "toggle":
             u = papers.toggle_translate(p, b["unit"], b.get("on", True))
-            return self._send(200, {"ok": True, "unit": _pub(u)})
+            return self._send(200, {"ok": True, "unit": p.pub(u)})
         if act == "glossary":
             changed = papers.apply_glossary(p, b.get("terms", []), b.get("field"))
             n = papers.retranslate_terms(p, changed) if b.get("apply") else 0
@@ -221,8 +221,14 @@ class H(BaseHTTPRequestHandler):
             return self._send(200, {"ok": True})
         if act == "rects":
             side, page = b["side"], int(b["page"])
-            src = p.ko_page(page) if side == "ko" and os.path.exists(p.ko_page(page)) else p.pdf
-            return self._send(200, {"rects": pdfcore.search_rects(src, 0 if src != p.pdf else page, b.get("text", ""))})
+            if p.is_src:
+                src, pno = (p.ko_pdf, page) if side == "ko" else (p.pdf, page)
+            else:
+                src = p.ko_page(page) if side == "ko" and os.path.exists(p.ko_page(page)) else p.pdf
+                pno = 0 if src != p.pdf else page
+            if not os.path.exists(src):
+                return self._send(200, {"rects": []})
+            return self._send(200, {"rects": pdfcore.search_rects(src, pno, b.get("text", ""))})
         if act == "chat":
             ok = chat.of(p).send(b.get("text", ""), b.get("context"))
             return self._send(200, {"ok": ok})
@@ -233,9 +239,10 @@ class H(BaseHTTPRequestHandler):
             return self._send(200, {"ok": chat.of(p).clear()})
         if act == "export":
             kind = b.get("kind", "ko")
-            base = os.path.splitext(p.meta().get("file") or "paper")[0]
-            suffix = {"ko": "_한글", "en": "_원문", "side": "_대역"}[kind]
-            name = f"{base}{suffix}.pdf"
+            base = re.sub(r"\.(tar\.gz|tgz|zip|tar|gz|tex|docx|pdf)$", "", p.meta().get("file") or "paper", flags=re.I)
+            suffix = {"ko": "_한글", "en": "_원문", "side": "_대역", "src": "_한글"}[kind]
+            ext = ".pdf" if kind != "src" else (".docx" if p.kind == "docx" else ".zip")
+            name = f"{base}{suffix}{ext}"
             if HOOKS["save"]:
                 out = HOOKS["save"](name)
                 if not out:

@@ -222,6 +222,39 @@ const Layout = {
 
 /* ================================================================== PDF viewers */
 const Viewers = {};
+/* where a unit sits on each side: [{n, b:[x0,y0,x1,y1]}] */
+const isSrc = () => app.paper && (app.paper.kind === "tex" || app.paper.kind === "docx");
+function geoOf(u, side, lines = true) {
+  if (!u) return [];
+  if (isSrc()) return ((u.geo || {})[side] || []).map(r => ({ n: r[0], b: r.slice(1) }));
+  if (side === "en" || !u.ko) return (lines && u.lines && u.lines.length ? u.lines : [u.bbox]).map(b => ({ n: u.page, b }));
+  return [{ n: u.page, b: u.bbox }];
+}
+function pagesOf(side) {
+  if (!app.paper) return [];
+  if (side === "ko" && isSrc()) return app.paper.ko_pages || [];
+  return app.paper.pages || [];
+}
+/* scroll sync for source papers: unit anchors pair a spot on one PDF with the same text on the other */
+function anchorsFor() {
+  const out = [];
+  for (const id of app.order) {
+    const u = app.units.get(id); const a = geoOf(u, "en")[0], b = geoOf(u, "ko")[0];
+    if (a && b) out.push({ en: a.n + a.b[1] / ((app.paper.pages[a.n] || {}).h || 800), ko: b.n + b.b[1] / ((app.paper.ko_pages[b.n] || {}).h || 800) });
+  }
+  out.sort((x, y) => x.en - y.en);
+  const mono = []; for (const a of out) if (!mono.length || a.ko >= mono[mono.length - 1].ko) mono.push(a);
+  return mono;
+}
+function mapPos(from, to, v) {
+  const A = app._anchors || (app._anchors = anchorsFor()); if (!A.length) return null;
+  let i = A.findIndex(a => a[from] > v);
+  if (i === -1) return A[A.length - 1][to] + (v - A[A.length - 1][from]);
+  if (i === 0) return Math.max(0, A[0][to] - (A[0][from] - v));
+  const a = A[i - 1], b = A[i], f = (v - a[from]) / Math.max(1e-6, b[from] - a[from]);
+  return a[to] + f * (b[to] - a[to]);
+}
+
 class Viewer {
   constructor(side) {
     this.side = side; this.zf = store.get("zoom." + side, 1); this.scale = 1; this.pages = [];
@@ -245,7 +278,12 @@ class Viewer {
   }
   load() {
     this.inner.innerHTML = ""; this.pages = [];
-    (app.paper?.pages || []).forEach((pg, n) => {
+    const list = pagesOf(this.side);
+    if (this.side === "ko" && isSrc() && !list.length && app.paper) {
+      this.inner.append(h("div", { class: "nopages" }, h("i", { class: "spin" }),
+        h("span", {}, app.paper.kind === "tex" ? "번역한 LaTeX 소스로 한국어 PDF를 조판합니다. 번역이 조금 진행되면 나타나요." : "번역한 Word 문서로 한국어 PDF를 만듭니다. 번역이 조금 진행되면 나타나요.")));
+    }
+    list.forEach((pg, n) => {
       const img = h("img", { alt: "", draggable: "false" });
       const ov = h("div", { class: "ov" });
       const d = h("div", { class: "pg", "data-n": n }, img, ov, h("span", { class: "pno" }, `${n + 1}`));
@@ -276,7 +314,7 @@ class Viewer {
     const rev = this.side === "ko" ? (app.pageRev[n] || 0) : 0;
     return `/api/p/${app.pid}/page/${this.side}/${n}.png?z=${this.zbucket()}&v=${rev}`;
   }
-  pending(n) { return this.side === "ko" && !app.pageRev[n] && app.status !== "done" && app.status !== "error"; }
+  pending(n) { return this.side === "ko" && !isSrc() && !app.pageRev[n] && app.status !== "done" && app.status !== "error"; }
   loadImg(n, force) {
     const p = this.pages[n]; if (!p) return;
     const u = this.url(n);
@@ -295,17 +333,17 @@ class Viewer {
     this.pages.forEach(p => $$(".hit", p.ov).forEach(x => x.remove()));
     for (const u of app.units.values()) {
       if (["running", "figtext", "other"].includes(u.kind) && !u.translate) continue;
-      const p = this.pages[u.page]; if (!p) continue;
-      const d = h("div", { class: "hit", "data-id": u.id, style: this.pct(u.bbox, p), title: "" });
-      d.addEventListener("click", e => { e.stopPropagation(); selectUnits([u.id], this.side, { scroll: true }); });
-      d.addEventListener("dblclick", e => { e.stopPropagation(); if (u.translate || u.ko) editUnit(u.id); });
-      p.ov.prepend(d);
+      const boxes = isSrc() ? geoOf(u, this.side) : (this.side === "ko" || !isSrc() ? [{ n: u.page, b: u.bbox }] : []);
+      for (const g of boxes) {
+        const p = this.pages[g.n]; if (!p) continue;
+        const d = h("div", { class: "hit", "data-id": u.id, style: this.pct(g.b, p), title: "" });
+        d.addEventListener("click", e => { e.stopPropagation(); selectUnits([u.id], this.side, { scroll: true }); });
+        d.addEventListener("dblclick", e => { e.stopPropagation(); if (u.translate || u.ko) editUnit(u.id); });
+        p.ov.prepend(d);
+      }
     }
   }
-  rectsFor(u, kind) {
-    if (this.side === "en" || !u.ko) return u.lines && u.lines.length ? u.lines : [u.bbox];
-    return [u.bbox];
-  }
+  rectsFor(u) { return geoOf(u, this.side); }
   drawAll() { this.drawHL(); }
   drawHL() {
     this.pages.forEach(p => $$(".hlr", p.ov).forEach(x => x.remove()));
@@ -315,20 +353,21 @@ class Viewer {
       if (color) d.style.background = color + "55";
       p.ov.append(d);
     };
-    for (const m of app.marks) { const u = app.units.get(m.unit); if (u) this.rectsFor(u).forEach(b => add(u.page, b, "mark", m.color)); }
-    if (FindState.hits.length) for (const id of FindState.hits) { const u = app.units.get(id); if (u) add(u.page, u.bbox, "find"); }
+    for (const m of app.marks) { const u = app.units.get(m.unit); if (u) this.rectsFor(u).forEach(g => add(g.n, g.b, "mark", m.color)); }
+    if (FindState.hits.length) for (const id of FindState.hits) { const u = app.units.get(id); if (u) geoOf(u, this.side, false).forEach(g => add(g.n, g.b, "find")); }
     const pr = app.sel.precise[this.side];
     for (const id of app.sel.ids) {
       const u = app.units.get(id); if (!u) continue;
-      this.rectsFor(u).forEach(b => add(u.page, b, pr ? "selp" : "sel"));
+      this.rectsFor(u).forEach(g => add(g.n, g.b, pr ? "selp" : "sel"));
     }
     if (pr) pr.rects.forEach(b => add(pr.page, b, "sel"));
   }
   scrollToUnit(id, smooth = true) {
     const u = app.units.get(id); if (!u) return;
-    const p = this.pages[u.page]; if (!p) return;
-    const top = p.d.offsetTop + u.bbox[1] / p.h * p.d.offsetHeight - this.el.clientHeight * 0.28;
-    const left = p.d.offsetLeft + u.bbox[0] / p.w * p.d.offsetWidth - 20;
+    const g = geoOf(u, this.side)[0]; if (!g) return;
+    const p = this.pages[g.n]; if (!p) return;
+    const top = p.d.offsetTop + g.b[1] / p.h * p.d.offsetHeight - this.el.clientHeight * 0.28;
+    const left = p.d.offsetLeft + g.b[0] / p.w * p.d.offsetWidth - 20;
     this._noSync = true;
     this.el.scrollTo({ top: Math.max(0, top), left: this.el.scrollWidth > this.el.clientWidth ? Math.max(0, left) : 0, behavior: smooth ? "smooth" : "auto" });
     setTimeout(() => { this._noSync = false; }, 600);
@@ -353,9 +392,14 @@ class Viewer {
     if (!app.sync || this._noSync || this._fromSync) return;
     const other = Viewers[this.side === "en" ? "ko" : "en"]; if (!other || !other.pages.length) return;
     const pos = this.position(); if (!pos) return;
-    const q = other.pages[pos.n]; if (!q) return;
+    let tn = pos.n, tf = pos.f;
+    if (isSrc()) {
+      const v = mapPos(this.side, other.side, pos.n + pos.f); if (v == null) return;
+      tn = Math.max(0, Math.min(other.pages.length - 1, Math.floor(v))); tf = v - tn;
+    }
+    const q = other.pages[tn]; if (!q) return;
     other._fromSync = true;
-    other.el.scrollTop = q.d.offsetTop + pos.f * q.d.offsetHeight;
+    other.el.scrollTop = q.d.offsetTop + tf * q.d.offsetHeight;
     other.el.scrollLeft = this.el.scrollLeft / Math.max(1, this.el.scrollWidth - this.el.clientWidth) * Math.max(0, other.el.scrollWidth - other.el.clientWidth) || 0;
     requestAnimationFrame(() => requestAnimationFrame(() => { other._fromSync = false; }));
   }
@@ -364,6 +408,27 @@ class Viewer {
 const uid = () => Math.random().toString(16).slice(2, 12);
 let _ns;
 function saveNotes() { clearTimeout(_ns); _ns = setTimeout(() => api.post(`/api/p/${app.pid}/notes`, { marks: app.marks }).catch(e => toast("형광펜 저장 실패: " + e.message, "err")), 400); }
+
+/* ================================================================== math in the reader (KaTeX, loaded on demand) */
+let katexP = null;
+function loadKatex() {
+  if (window.katex) return Promise.resolve();
+  if (katexP) return katexP;
+  katexP = new Promise((res, rej) => {
+    const l = document.createElement("link"); l.rel = "stylesheet"; l.href = "/static/katex/katex.min.css"; document.head.append(l);
+    const sc = document.createElement("script"); sc.src = "/static/katex/katex.min.js"; sc.onload = res; sc.onerror = rej; document.head.append(sc);
+  });
+  return katexP;
+}
+function renderTex(root) {
+  const spans = root.querySelectorAll("span.tex:not([data-k])"); if (!spans.length) return;
+  loadKatex().then(() => spans.forEach(sp => {
+    sp.dataset.k = "1";
+    const src = sp.textContent;
+    try { katex.render(src, sp, { displayMode: sp.classList.contains("d"), throwOnError: false, strict: "ignore", trust: false, macros: Object.assign({}, app.paper?.macros || {}) }); }
+    catch (e) { sp.textContent = src; }
+  })).catch(() => {});
+}
 
 /* ================================================================== selection & linking */
 function selectUnits(ids, from, opt = {}) {
@@ -417,6 +482,7 @@ const Reader = {
     // where each picture goes: figures before their caption, algorithm/code boxes after it, loose ones by position
     const before = {}, after = {}, loose = {};
     d.figures.forEach((f, i) => {
+      if (f.unit) return;                          // placed where its own paragraph is (Word)
       if (f.caption && app.units.has(f.caption)) (f.kind === "figure" ? before : after)[f.caption] = [...((f.kind === "figure" ? before : after)[f.caption] || []), i];
       else (loose[f.page] = loose[f.page] || []).push(i);
     });
@@ -432,7 +498,7 @@ const Reader = {
     const placed = new Set();
     const putLoose = (page, y) => {
       for (const i of loose[page] || []) {
-        if (placed.has("f" + i) || d.figures[i].bbox[1] > y) continue;
+        if (placed.has("f" + i) || d.figures[i].unit || (d.figures[i].bbox || [0, 0])[1] > y) continue;
         placed.add("f" + i); this.doc.append(this.figEl("fig", i));
       }
     };
@@ -444,6 +510,7 @@ const Reader = {
       if (u.id in eqAt) { this.doc.append(this.eqEl(eqAt[u.id])); continue; }
       if (eqSkip.has(u.id)) continue;
       if (tableCells.has(u.id)) { if (u.id in tableAt) this.doc.append(this.figEl("tab", tableAt[u.id])); continue; }
+      if (u.kind === "figure") { const fi = d.figures.findIndex(f => f.unit === u.id); if (fi >= 0 && !placed.has("f" + fi)) { placed.add("f" + fi); this.doc.append(this.figEl("fig", fi)); } continue; }
       if (["running", "figtext", "other", "code", "equation"].includes(u.kind)) continue;
       (before[u.id] || []).forEach(i => { placed.add("f" + i); this.doc.append(this.figEl("fig", i)); });
       const prev = u.prev && this.blocks.get(u.prev);
@@ -463,6 +530,7 @@ const Reader = {
   headLevel(u) {
     if (u.kind === "title") return "h1";
     if (u.kind !== "heading") return "";
+    if (u.level) return u.level === "h4" ? "h3" : u.level;
     const m = (u.text || "").trim().match(/^(\d+(?:\.\d+)*)|^([A-Z])\.\s|^([IVX]+)\.\s/);
     if (m && m[1] && m[1].split(".").length >= 2) return "h3";
     if (m && m[2]) return "h3";
@@ -487,12 +555,14 @@ const Reader = {
     const u = us[0];
     el.innerHTML = "";
     const mode = el.dataset.ref ? "en" : app.readMode;
-    const koOf = x => x.ko_html || (x.translate ? (x.err ? esc(x.text) : '<span class="pend"></span>') : esc(x.text));
+    const enOf = x => x.en_html != null ? x.en_html : esc(x.text);
+    const koOf = x => (x.ko_html && !(isSrc() && x.err)) ? x.ko_html : (x.translate ? (x.err ? enOf(x) : '<span class="pend"></span>') : enOf(x));
     const glue = (parts) => parts.join(" ").replace(/\s+-\s+/g, "-");
-    const err = us.some(x => x.err && !x.ko);
+    const err = us.some(x => x.err && (!x.ko || isSrc()));
     el.classList.toggle("err", err);
     if (mode !== "en") el.append(h("div", { class: "ko", html: glue(us.map(koOf)) }));
-    if (mode !== "ko") el.append(h("div", { class: mode === "en" ? "ko en-only" : "en", html: esc(glue(us.map(x => x.text))) }));
+    if (mode !== "ko") el.append(h("div", { class: mode === "en" ? "ko en-only" : "en", html: glue(us.map(enOf)) }));
+    renderTex(el);
     el.append(h("div", { class: "btools" },
       h("button", { title: "이 문단에 대해 질문", html: ic("ask") + "질문", onclick: e => { e.stopPropagation(); selectUnits(us.map(x => x.id), "reader"); Chat.focus(); } }),
       h("button", { title: "형광펜", html: ic("hl"), onclick: e => { e.stopPropagation(); toggleMark(us.map(x => x.id)); } }),
@@ -512,7 +582,7 @@ const Reader = {
   figEl(kind, i) {
     const item = kind === "fig" ? app.paper.figures[i] : app.paper.tables[i];
     const src = kind === "fig" ? `/api/p/${app.pid}/fig/${i}.png` : this.tabUrl(i);
-    const wpt = item.bbox[2] - item.bbox[0];
+    const wpt = item.bbox ? item.bbox[2] - item.bbox[0] : 1e4;
     const k = item.kind === "algorithm" || item.kind === "code" ? "algo" : kind === "tab" ? "tab" : "pic";
     const img = h("img", { loading: "lazy", src, style: { width: `min(100%, ${Math.round(wpt * this.pxPerPt() * (k === "pic" ? 1.25 : 1.05))}px)` } });
     const f = h("div", { class: `fig ${k}`, ...(kind === "tab" ? { "data-tab": i } : {}) }, img);
@@ -521,6 +591,21 @@ const Reader = {
   },
   eqEl(i) {
     const e = app.paper.equations[i];
+    if (app.paper.kind === "docx" && e.tex) {           // Word equation: drawn from its own math markup
+      const el = h("div", { class: "eq texeq", "data-ids": e.units.join(","), title: "눌러서 원문 위치 보기" }, h("span", { class: "tex d" }, e.tex));
+      el.addEventListener("click", () => selectUnits(e.units, "reader", { scroll: true }));
+      renderTex(el);
+      return el;
+    }
+    if (isSrc() && app.paper.kind === "tex") {         // the equation exactly as compiled, from the PDF
+      const u = app.units.get(e.units[0]);
+      const b = e.bbox, wpt = b[2] - b[0];
+      const img = h("img", { loading: "lazy", alt: u ? u.text : "", src: `/api/p/${app.pid}/crop/en/${e.page}.png?r=${b.map(x => x.toFixed(1)).join(",")}`,
+        style: { width: `min(100%, ${Math.round(wpt * this.pxPerPt())}px)` } });
+      const el = h("div", { class: "eq", "data-ids": e.units.join(","), title: "눌러서 원문 위치 보기" }, img);
+      el.addEventListener("click", () => selectUnits(e.units, "reader", { scroll: true }));
+      return el;
+    }
     const b = e.bbox, wpt = b[2] - b[0];
     const img = h("img", { loading: "lazy", src: `/api/p/${app.pid}/crop/en/${e.page}.png?r=${b.map(x => x.toFixed(1)).join(",")}`,
       style: { width: `min(100%, ${Math.round(wpt * this.pxPerPt())}px)` } });
@@ -592,8 +677,9 @@ const Reader = {
     if (ids.length === 1 && text.length >= 2) {
       const u = app.units.get(ids[0]);
       const side = inEn || app.readMode === "en" ? "en" : "ko";
-      if (side === "en" || app.pageRev[u.page]) api.post(`/api/p/${app.pid}/rects`, { side, page: u.page, text }).then(r => {
-        if (r.rects?.length && app.sel.text === text) { app.sel.precise = { [side]: { page: u.page, rects: r.rects } }; Viewers.en.drawHL(); Viewers.ko.drawHL(); }
+      const pg = (geoOf(u, side)[0] || { n: u.page }).n;
+      if (side === "en" || app.pageRev[pg]) api.post(`/api/p/${app.pid}/rects`, { side, page: pg, text }).then(r => {
+        if (r.rects?.length && app.sel.text === text) { app.sel.precise = { [side]: { page: pg, rects: r.rects } }; Viewers.en.drawHL(); Viewers.ko.drawHL(); }
       }).catch(() => {});
     }
     const rr = range.getBoundingClientRect();
@@ -759,9 +845,12 @@ function lightbox(src) { const lb = h("div", { class: "lightbox", onclick: () =>
 function editUnit(id) {
   const u = app.units.get(id); if (!u) return;
   const ta = h("textarea", { class: "txt", rows: 7, style: { width: "100%", lineHeight: "1.6", fontFamily: "var(--read)", fontSize: "14.5px" } });
-  ta.value = u.ko || "";
+  ta.value = (isSrc() ? u.ko_src : u.ko) || "";
+  const note = app.paper.kind === "tex" ? "LaTeX 그대로 고칩니다(수식·\\cite 등은 남겨 두세요). 저장하면 한국어 PDF를 다시 컴파일합니다."
+    : "고친 번역은 한글 PDF에 바로 다시 조판됩니다. 용어집을 다시 적용해도 직접 고친 문단은 바뀌지 않습니다.";
+  if (app.paper.kind === "tex") { ta.style.fontFamily = "var(--mono, monospace)"; ta.style.fontSize = "13px"; }
   const d = modal("번역 직접 수정", [h("div", { class: "hint", style: { maxHeight: "120px", overflow: "auto", background: "var(--sunken)", borderRadius: "8px", padding: "8px 10px" } }, u.text), ta,
-    h("div", { class: "hint" }, "고친 번역은 한글 PDF에 바로 다시 조판됩니다. 용어집을 다시 적용해도 직접 고친 문단은 바뀌지 않습니다.")],
+    h("div", { class: "hint" }, note)],
     [h("button", { class: "ghost", onclick: () => d.close() }, "취소"), h("button", { class: "primary", onclick: async () => {
       try { const r = await api.post(`/api/p/${app.pid}/edit`, { unit: id, ko: ta.value.trim() }); applyUnit(r.unit); d.close(); toast("번역을 고쳤습니다"); } catch (e) { toast(e.message, "err"); }
     } }, "저장")], true);
@@ -783,6 +872,7 @@ function retranslateDlg(id) {
 }
 function applyUnit(nu) {
   const u = app.units.get(nu.id); if (!u) return;
+  for (const k of ["ko_html", "ko_src", "err"]) if (!(k in nu)) delete u[k];
   Object.assign(u, nu);
   Reader.update([nu.id]);
   Poll.kick();
@@ -921,6 +1011,8 @@ function exportMenu(btn) {
     { label: "한글 논문 (깨끗하게)", icon: "file", fn: () => ex("ko", false) },
     { label: "영어 원문 (형광펜 포함)", icon: "file", fn: () => ex("en", true) },
     { label: "대역본 (원문 | 번역 나란히)", icon: "layout", fn: () => ex("side", true) },
+    ...(app.paper?.kind === "tex" ? ["-", { head: "소스로 저장" }, { label: "번역된 LaTeX 소스 (.zip)", icon: "file", fn: () => ex("src", false) }] : []),
+    ...(app.paper?.kind === "docx" ? ["-", { head: "Word로 저장" }, { label: "번역된 Word 문서 (.docx)", icon: "file", fn: () => ex("src", false) }] : []),
   ]);
 }
 
@@ -938,35 +1030,42 @@ const Poll = {
     app.status = r.status;
     let changedPages = [];
     for (const [n, v] of Object.entries(r.page_rev || {})) if (app.pageRev[n] !== v) { app.pageRev[n] = v; changedPages.push(+n); }
+    let koReload = false;
+    if (r.ko_pages && JSON.stringify(r.ko_pages) !== JSON.stringify(app.paper.ko_pages || [])) { app.paper.ko_pages = r.ko_pages; koReload = true; }
     if (r.rev !== app.rev) {
       app.rev = r.rev;
       try {
         const u = await api.get(`/api/p/${pid}/units`);
         const changed = [];
         for (const x of u.units) { const o = app.units.get(x.id); if (!o || o.ko !== x.ko || o.err !== x.err || o.translate !== x.translate) changed.push(x.id); app.units.set(x.id, x); }
+        app._anchors = null;
+        if (isSrc() && !koReload) { Viewers.ko.drawHits(); Viewers.ko.drawHL(); Viewers.en.drawHL(); }
         app.paper.glossary = u.glossary; app.paper.tables = u.tables;
         if (Reader.tab === "text") { if (changed.length > 60) Reader.render(); else Reader.update(changed); }
         if (r.title && r.title !== app.paper.meta.title) { app.paper.meta.title = r.title; setTitle(); }
       } catch (e) { /* next tick */ }
     }
-    changedPages.forEach(n => Viewers.ko.refreshPage(n));
+    if (koReload) { const keep = Viewers.ko.el.scrollTop; Viewers.ko.load(); Viewers.ko.el.scrollTop = keep; }
+    else changedPages.forEach(n => Viewers.ko.refreshPage(n));
     if (prevStatus !== r.status) { Viewers.ko.refreshAll(); if (r.status === "done" && prevStatus) toast("번역이 끝났습니다"); }
     if (r.field && app.paper.meta.field !== r.field) { app.paper.meta.field = r.field; setTitle(); }
     showProgress(r);
-    const busy = r.running || ["queued", "analyzing", "glossary", "translating"].includes(r.status);
+    const busy = r.running || r.building || ["queued", "analyzing", "glossary", "translating", "building"].includes(r.status);
     this.t = setTimeout(() => this.tick(), busy ? 1200 : 6000);
   },
 };
 function showProgress(r) {
   const el = $("#prog"); el.hidden = false; el.innerHTML = ""; el.className = "";
   const p = r.progress || {}; const pct = p.total ? Math.round(p.done / p.total * 100) : 0;
-  const label = { queued: "준비 중", analyzing: "논문 구조 분석 중", glossary: "분야·용어 파악 중", translating: `번역 중 ${pct}%` }[r.status];
+  const label = r.step || { queued: "준비 중", analyzing: "논문 구조 분석 중", glossary: "분야·용어 파악 중", translating: `번역 중 ${pct}%`, building: "한국어 PDF 조판 중" }[r.status];
   if (label && r.running !== false) el.append(h("i", { class: "spin" }), h("span", {}, label), r.status === "translating" ? h("span", { class: "bar" }, h("i", { style: { width: pct + "%" } })) : "");
+  else if (r.building) el.append(h("i", { class: "spin" }), h("span", {}, "한국어 PDF 다시 조판 중"));
   else if (r.status === "error") { el.className = "err"; el.append(h("span", { class: "dot" }), h("span", {}, "번역 중단됨 — 눌러서 확인")); }
   else if (r.status === "done") { el.className = "done"; el.append(h("span", { class: "dot" }), h("span", {}, r.error ? "번역 완료 (일부 실패)" : "번역 완료")); }
   else { el.append(h("span", {}, "대기")); }
   el.onclick = () => menu(el, [
-    { head: r.error ? r.error.slice(0, 120) : (r.field ? `분야: ${r.field}` : "번역 상태") },
+    { head: r.error ? r.error.slice(0, 160) : (r.field ? `분야: ${r.field}` : "번역 상태") },
+    ...(r.build_error ? [{ head: "조판 오류: " + r.build_error.slice(0, 140) }] : []),
     ...(r.running ? [{ label: "번역 멈추기", icon: "stop", fn: () => api.post(`/api/p/${app.pid}/stop`).then(() => Poll.kick()) }]
       : [{ label: r.status === "done" ? "빠진 문단만 다시 번역" : "이어서 번역", icon: "redo", fn: () => api.post(`/api/p/${app.pid}/resume`).then(() => Poll.kick()) },
          { label: "처음부터 다시 번역", icon: "redo", fn: () => { if (confirmInline("처음부터 다시 번역할까요? 직접 고친 번역도 사라집니다.")) api.post(`/api/p/${app.pid}/resume`, { restart: true }).then(() => openPaper(app.pid)); } }]),
@@ -991,12 +1090,13 @@ async function showHome() {
   try { app.st = await api.get("/api/state"); } catch (e) { /* keep old */ }
   const lib = app.st.library;
   const drop = h("div", { class: "drop", onclick: openFile },
-    h("div", { class: "big", html: ic("file") }), h("b", {}, "영어 논문 PDF를 끌어다 놓거나 눌러서 여세요"),
-    h("span", {}, "레이아웃과 그림은 그대로 두고 글만 한국어로 바꾼 PDF를 만듭니다"));
+    h("div", { class: "big", html: ic("file") }), h("b", {}, "영어 논문을 끌어다 놓거나 눌러서 여세요"),
+    h("span", {}, "PDF · LaTeX 소스(.zip, .tar.gz) · Word(.docx)"),
+    h("span", { class: "sub2" }, "소스 파일을 주면 그림과 수식이 원본 그대로인 한국어 PDF를 새로 조판합니다"));
   const list = h("div", { class: "lib" });
   if (!lib.length) list.append(h("div", { class: "empty" }, "아직 연 논문이 없습니다"));
   for (const p of lib) {
-    const run = ["queued", "analyzing", "glossary", "translating"].includes(p.status);
+    const run = ["queued", "analyzing", "glossary", "translating", "building"].includes(p.status);
     const pct = p.progress?.total ? Math.round(p.progress.done / p.progress.total * 100) : 0;
     const st = p.status === "done" ? h("span", { class: "st done" }, "번역 완료") : p.status === "error" ? h("span", { class: "st err" }, "중단됨") : h("span", { class: "st run" }, run ? `번역 중 ${pct}%` : "대기");
     const card = h("div", { class: "card", onclick: () => openPaper(p.id) },
@@ -1017,7 +1117,7 @@ async function showHome() {
     h("div", { class: "libh" }, h("h2", {}, "최근 논문"), h("div", { class: "grow" })), list));
   if (!app.st.claude && app.st.settings.backend === "cli")
     homeEl.querySelector(".hero").append(h("p", { style: { color: "var(--warn)", marginTop: "8px" } }, "이 PC에서 Claude Code를 찾지 못했습니다. 설정에서 API 키를 넣거나 Claude Code를 설치·로그인하세요. ", h("a", { href: "#", onclick: e => { e.preventDefault(); settingsDialog(); } }, "설정 열기")));
-  if (lib.some(p => ["queued", "analyzing", "glossary", "translating"].includes(p.status))) setTimeout(() => { if (!app.pid && !$("#home").hidden) showHome(); }, 4000);
+  if (lib.some(p => ["queued", "analyzing", "glossary", "translating", "building"].includes(p.status))) setTimeout(() => { if (!app.pid && !$("#home").hidden) showHome(); }, 4000);
 }
 async function openFile() {
   if (app.st?.app) {
@@ -1026,7 +1126,7 @@ async function openFile() {
 }
 async function uploadFile(f) {
   if (!f) return;
-  if (!/\.pdf$/i.test(f.name) && f.type !== "application/pdf") return toast("PDF 파일만 열 수 있습니다", "err");
+  if (!/\.(pdf|zip|tar|tgz|gz|tex|docx)$/i.test(f.name) && f.type !== "application/pdf") return toast("PDF, LaTeX 소스(.zip·.tar.gz·.tex), Word(.docx) 파일을 열 수 있습니다", "err");
   toast(`'${f.name}'을(를) 여는 중…`);
   try {
     const r = await fetch("/api/upload", { method: "POST", headers: { "X-PB-Token": TOKEN, "X-File-Name": encodeURIComponent(f.name) }, body: await f.arrayBuffer() });
@@ -1037,7 +1137,7 @@ async function openPaper(id) {
   let st;
   try { st = await api.get(`/api/p/${id}`); } catch (e) { return toast(e.message, "err"); }
   $("#home").hidden = true;
-  app.pid = id; app.paper = st; app.units = new Map(st.units.map(u => [u.id, u])); app.order = st.units.map(u => u.id);
+  app.pid = id; app.paper = st; app.units = new Map(st.units.map(u => [u.id, u])); app.order = st.units.map(u => u.id); app._anchors = null;
   app.pageRev = Object.fromEntries(Object.entries(st.meta.page_rev || {}).map(([k, v]) => [k, v]));
   app.rev = st.meta.rev ?? 0; app.status = st.meta.status;
   app.marks = (st.notes && st.notes.marks) || [];

@@ -28,7 +28,7 @@
 
 <br>
 
-**한페이퍼**는 영어 논문 PDF를 넣으면 **레이아웃·그림·수식·글자 크기는 그대로 둔 한글 논문**을 만들어 주는 데스크톱 앱입니다. 원문과 번역을 양옆에 두고, 읽기 쉬운 본문 화면과 논문 도우미가 서로 연결돼 함께 움직여요.
+**한페이퍼**는 영어 논문을 넣으면 **레이아웃·그림·수식·글자 크기는 그대로 둔 한글 논문**을 만들어 주는 데스크톱 앱입니다. PDF는 물론 **LaTeX 소스(arXiv .tar.gz/.zip)와 Word(.docx)** 도 받아요. 원문과 번역을 양옆에 두고, 읽기 쉬운 본문 화면과 논문 도우미가 서로 연결돼 함께 움직여요.
 
 <p align="center"><img src="site/assets/main.png" alt="원문 · 번역 · 읽기 · 질문 네 칸 화면" width="100%"></p>
 
@@ -75,6 +75,20 @@
     <td><img src="site/assets/reader.png" alt="읽기 화면" width="100%"></td>
   </tr>
 </table>
+
+### LaTeX 소스나 Word 파일이 있다면
+
+PDF 대신 원본을 넣으면 더 정확합니다. 원본의 글만 번역해 넣고 **원본 그대로 다시 조판**하므로, 그림·수식·표·식 번호·참조 번호가 원래 모습과 똑같이 나와요.
+
+| 넣는 파일 | 어떻게 만드나 | 더 받을 수 있는 것 |
+|:---|:---|:---|
+| **LaTeX 소스** (`.tar.gz`, `.zip`, `.tex`) — arXiv의 *TeX Source* 그대로 | 한국어 글꼴(나눔명조·나눔고딕)을 넣어 TeX로 다시 컴파일합니다. "Figure 1"은 "그림 1", `\cref`는 "표 2"처럼 바뀌어요. | 번역된 LaTeX 소스(.zip) |
+| **Word** (`.docx`) | 문단의 서식(굵게·기울임·위첨자)과 수식·그림·각주·필드를 그대로 두고 글만 바꿔, Word로 PDF를 만듭니다. | 번역된 Word 문서(.docx) |
+
+- 원문 PDF·한글 PDF·읽기 화면이 PDF 논문과 똑같이 연결돼요. 한글이 길어져 쪽 수가 달라져도 스크롤과 위치 표시는 문단 단위로 맞춰 움직입니다.
+- 읽기 화면의 수식은 [KaTeX](https://katex.org/)로 선명하게 그려요. 식 번호가 붙은 수식은 컴파일된 원문 그대로 보여 줍니다.
+- LaTeX 엔진(Tectonic, 약 20MB)은 처음 한 번 자동으로 받습니다. 첫 컴파일은 필요한 TeX 패키지를 받느라 몇 분 걸릴 수 있어요.
+- Word 파일은 PC에 **Microsoft Word**나 **LibreOffice**가 있어야 PDF로 바꿀 수 있어요.
 
 ### 더 있어요
 
@@ -131,6 +145,12 @@ PDF 분석과 조판은 모두 내 PC에서 합니다. 번역할 문단의 글�
 </details>
 
 <details>
+<summary><b>LaTeX 소스가 컴파일되지 않아요.</b></summary>
+
+한페이퍼는 Tectonic(XeTeX)으로 컴파일합니다. pdfLaTeX 전용 패키지나 `\write18`이 필요한 소스, 외부 파일이 빠진 압축 파일은 실패할 수 있어요. 그럴 땐 PDF로 열면 PDF 방식으로 번역합니다. 번역문이 TeX 오류를 일으킨 문단은 자동으로 원문으로 두고 표시해 드려요.
+</details>
+
+<details>
 <summary><b>스캔한 PDF도 되나요?</b></summary>
 
 글자를 선택할 수 있는 PDF(대부분의 학술지·arXiv 논문)를 대상으로 합니다. 이미지로만 된 스캔본은 아직 지원하지 않아요.
@@ -155,10 +175,10 @@ python hanpaper/server.py        # 브라우저로 실행 (http://127.0.0.1:8790
 - macOS 앱: `bash packaging/build_mac.sh` → `dist/Hanpaper.dmg`
 - `v*` 태그를 올리면 GitHub Actions가 두 운영체제용 설치 파일을 만들어 Release에 붙이고, `main`에 올리면 웹사이트를 배포합니다.
 
-구성: Python · [PyMuPDF](https://pymupdf.readthedocs.io/)(분석·조판) · [pywebview](https://pywebview.flowrl.com/)(앱 창) · 바닐라 JS 화면.
+구성: Python · [PyMuPDF](https://pymupdf.readthedocs.io/)(분석·조판) · [pywebview](https://pywebview.flowrl.com/)(앱 창) · 바닐라 JS 화면 · LaTeX 소스는 [Tectonic](https://tectonic-typesetting.github.io/)과 SyncTeX, Word는 [lxml](https://lxml.de/).
 
 ## 라이선스
 
-[MIT](LICENSE). 함께 들어 있는 글꼴: 나눔명조·나눔고딕(SIL OFL), Noto Sans Math(SIL OFL), Pretendard(SIL OFL).
+[MIT](LICENSE). 함께 들어 있는 글꼴: 나눔명조·나눔고딕(SIL OFL), Noto Sans Math(SIL OFL), Pretendard(SIL OFL). 수식 표시: KaTeX(MIT). LaTeX 엔진 Tectonic(MIT)은 처음 쓸 때 공식 배포처에서 받습니다.
 
 한페이퍼는 비공식 도구이며 Anthropic·OpenAI와 관련이 없습니다. 화면 속 예시 논문은 Wei et al., *Chain-of-Thought Prompting Elicits Reasoning in Large Language Models* ([arXiv:2201.11903](https://arxiv.org/abs/2201.11903), CC BY 4.0)입니다.
